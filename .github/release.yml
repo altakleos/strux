@@ -1,0 +1,12 @@
+# Release notes: GitHub lists the pull requests merged since the last release, by title, in these
+# groups. Dependabot labels its pull requests dependencies.
+changelog:
+  categories:
+    - title: Breaking changes
+      labels: [breaking]
+    - title: Changes
+      labels: ["*"]
+      exclude:
+        labels: [dependencies]
+    - title: Dependencies
+      labels: [dependencies]

@@ -75,6 +75,7 @@ checksum:
 snapshot:
   version_template: "{{ incpatch .Version }}-dev+{{ .ShortCommit }}"
 
+# GitHub's release notes, grouped as .github/release.yml says.
 changelog:
   use: github-native
 
