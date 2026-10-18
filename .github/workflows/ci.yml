@@ -159,6 +159,14 @@ jobs:
             dist/*.zip
           if-no-files-found: error
           retention-days: 7
+      # The install scripts are rendered outside dist/, as .goreleaser.yaml says, so they upload
+      # on their own; a job that needs all the assets downloads both artifacts into one directory.
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: snapshot-installers
+          path: build/install.*
+          if-no-files-found: error
+          retention-days: 7
 
   # The same commit and tags give the same bytes on another kind of machine.
   reproducible:
@@ -199,7 +207,8 @@ jobs:
       - name: Compare with the Linux build
         run: diff snapshot/checksums.txt dist/checksums.txt
 
-  # Each archive unpacks and runs on its platform, and reports that platform and this commit.
+  # Each archive unpacks and runs on its platform, and reports that platform and this commit, and
+  # the platform's install script installs it.
   smoke:
     needs: build
     strategy:
@@ -219,7 +228,8 @@ jobs:
           cache: false # check-release needs only the standard library
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: snapshot
+          pattern: snapshot*
+          merge-multiple: true
           path: snapshot
       - run: go run ./internal/cmd/check-release -dir snapshot -platform "$PLATFORM" -commit "$GITHUB_SHA"
         shell: bash

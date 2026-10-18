@@ -1,18 +1,22 @@
-// Command check-release checks release assets: the archives in a directory and its checksums.txt.
+// Command check-release checks a release's assets: the files in a directory that its
+// checksums.txt lists, which must be an archive for each platform and the install scripts.
 //
 // With -matrix it prints, as a GitHub Actions matrix, the runner for each archive's platform, so
 // that every archive built is run. A platform with no runner is an error.
 //
-// Otherwise it checks the archive for -platform, on a machine of that platform. The archive's
-// SHA-256 digest must match checksums.txt; its strux binary must run and report, through
-// strux version --json, that platform, the expected commit, no uncommitted changes, and, for a
-// tagged release, the tag as its version; and its THIRD_PARTY_NOTICES must list the Go release
-// and every module the binary was built with.
+// Otherwise it checks the release on a machine of -platform. The SHA-256 digests of the
+// platform's archive and of the install scripts must match checksums.txt. The archive's strux
+// binary must run and report, through strux version --json, that platform, the expected commit,
+// no uncommitted changes, and, for a tagged release, the tag as its version, and its
+// THIRD_PARTY_NOTICES must list the Go release and every module the binary was built with. The
+// platform's install script, downloading from the directory as from the release, must install
+// that binary in each shell the README gives it to; with -provenance it must also have checked
+// the archive's build provenance, which needs gh logged in.
 //
 // Usage:
 //
 //	go run ./internal/cmd/check-release -dir DIR -matrix
-//	go run ./internal/cmd/check-release -dir DIR -platform OS/ARCH -commit SHA [-tag vX.Y.Z]
+//	go run ./internal/cmd/check-release -dir DIR -platform OS/ARCH -commit SHA [-tag vX.Y.Z] [-provenance]
 package main
 
 import (
@@ -30,6 +34,8 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -38,6 +44,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/altakleos/strux/internal/installers"
 	"github.com/altakleos/strux/internal/version"
 )
 
@@ -57,6 +64,7 @@ func main() {
 	platform := flag.String("platform", "", "platform of the archive to check, as OS/ARCH")
 	commit := flag.String("commit", "", "commit the binary must report")
 	tag := flag.String("tag", "", "for a tagged release, the version the binary must report")
+	provenance := flag.Bool("provenance", false, "require the install script to check the archive's build provenance")
 	flag.Parse()
 	var report string
 	var err error
@@ -64,7 +72,7 @@ func main() {
 	case flag.NArg() > 0:
 		usage()
 	case *matrix:
-		if *platform != "" || *commit != "" || *tag != "" {
+		if *platform != "" || *commit != "" || *tag != "" || *provenance {
 			usage()
 		}
 		report, err = runnerMatrix(*dir)
@@ -72,7 +80,7 @@ func main() {
 		if *platform == "" || *commit == "" {
 			usage()
 		}
-		report, err = check(*dir, *platform, *commit, *tag)
+		report, err = check(*dir, *platform, *commit, *tag, *provenance)
 	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "check-release:", err)
@@ -92,7 +100,7 @@ func runnerMatrix(dir string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	all, err := archives(sums)
+	all, err := assets(sums)
 	if err != nil {
 		return "", err
 	}
@@ -113,7 +121,7 @@ func runnerMatrix(dir string) (string, error) {
 	return string(m), err
 }
 
-func check(dir, platform, commit, tag string) (string, error) {
+func check(dir, platform, commit, tag string, provenance bool) (string, error) {
 	if here := runtime.GOOS + "/" + runtime.GOARCH; platform != here {
 		return "", fmt.Errorf("this machine is %s, not %s", here, platform)
 	}
@@ -121,9 +129,14 @@ func check(dir, platform, commit, tag string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	all, err := archives(sums)
+	all, err := assets(sums)
 	if err != nil {
 		return "", err
+	}
+	for _, name := range installers.Names {
+		if err := checkDigest(filepath.Join(dir, name), sums[name]); err != nil {
+			return "", err
+		}
 	}
 	a, ok := all[platform]
 	if !ok {
@@ -173,7 +186,11 @@ func check(dir, platform, commit, tag string) (string, error) {
 	if len(problems) > 0 {
 		return "", fmt.Errorf("%s: strux %s", a.name, strings.Join(problems, "; "))
 	}
-	return fmt.Sprintf("%s: digest matches checksums.txt; strux %s, commit %s, %s", a.name, got.Version, got.Commit, got.Platform), nil
+	installed, err := install(dir, a.platform, bin, tmp, provenance)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%s: digest matches checksums.txt; strux %s, commit %s, %s\n%s", a.name, got.Version, got.Commit, got.Platform, installed), nil
 }
 
 // readChecksums reads a checksums file: one "<sha256 hex>  <file name>" line per asset.
@@ -201,11 +218,19 @@ type archive struct {
 	name, version, platform string
 }
 
-// archives reads the archive for each platform from the assets that checksums.txt lists, which
-// must all be archives, one for each platform.
-func archives(sums map[string]string) (map[string]archive, error) {
+// assets reads the archive for each platform from the assets that checksums.txt lists, which
+// must be the install scripts and archives, one for each platform.
+func assets(sums map[string]string) (map[string]archive, error) {
+	for _, name := range installers.Names {
+		if _, ok := sums[name]; !ok {
+			return nil, fmt.Errorf("checksums.txt lists no %s", name)
+		}
+	}
 	all := map[string]archive{}
 	for name := range sums {
+		if slices.Contains(installers.Names, name) {
+			continue
+		}
 		base, ok := strings.CutSuffix(name, ".tar.gz")
 		isZip := false
 		if !ok {
@@ -214,7 +239,7 @@ func archives(sums map[string]string) (map[string]archive, error) {
 		}
 		parts := strings.Split(base, "_")
 		if !ok || len(parts) != 4 || parts[0] != "strux" || isZip != (parts[2] == "windows") {
-			return nil, fmt.Errorf("checksums.txt lists %s, which is not a strux archive", name)
+			return nil, fmt.Errorf("checksums.txt lists %s, which is neither a strux archive nor an install script", name)
 		}
 		a := archive{name, parts[1], parts[2] + "/" + parts[3]}
 		if other, ok := all[a.platform]; ok {
@@ -325,6 +350,91 @@ func missing(files map[string][]byte, names []string) error {
 		}
 	}
 	return nil
+}
+
+// install serves dir over HTTP on this machine, standing in for the release's download URL, and
+// runs the platform's install script from there as the README says to, in each shell that runs
+// it here, each into a directory of its own. Each run must install the strux binary at bin.
+//
+// Unless provenance is set, the script runs with gh logged out, so it does not check the
+// archive's build provenance, which a snapshot does not have. With provenance set, it runs with
+// this environment's gh login, and must report having checked it.
+func install(dir, platform, bin, tmp string, provenance bool) (string, error) {
+	want, err := os.ReadFile(bin)
+	if err != nil {
+		return "", err
+	}
+	srv := httptest.NewServer(http.FileServer(http.Dir(dir)))
+	defer srv.Close()
+	env, err := installEnv(provenance, tmp)
+	if err != nil {
+		return "", err
+	}
+	script, shells := "install.sh", []string{"sh"}
+	if strings.HasPrefix(platform, "windows/") {
+		// Windows has Windows PowerShell 5.1, and may have PowerShell 7 too.
+		script, shells = "install.ps1", []string{"powershell"}
+		if _, err := exec.LookPath("pwsh"); err == nil {
+			shells = append(shells, "pwsh")
+		}
+	}
+	var report []string
+	for _, shell := range shells {
+		into := filepath.Join(tmp, "installed-by-"+shell)
+		args := []string{"-c", `curl -fsSL "$1/install.sh" | sh`, "sh", srv.URL}
+		if script == "install.ps1" {
+			args = []string{"-NoProfile", "-NonInteractive", "-Command", "irm '" + srv.URL + "/install.ps1' | iex"}
+		}
+		out, err := run(shell, args, slices.Concat(env, []string{"STRUX_RELEASE_URL=" + srv.URL, "STRUX_INSTALL_DIR=" + into}))
+		if err != nil {
+			return "", fmt.Errorf("%s in %s: %w\n%s", script, shell, err, out)
+		}
+		got, err := os.ReadFile(filepath.Join(into, filepath.Base(bin)))
+		switch {
+		case err != nil:
+			return "", fmt.Errorf("%s in %s installed no strux: %w\n%s", script, shell, err, out)
+		case !bytes.Equal(got, want):
+			return "", fmt.Errorf("%s in %s installed a strux other than the archive's\n%s", script, shell, out)
+		case provenance && !strings.Contains(out, "provenance: verified"):
+			return "", fmt.Errorf("%s in %s did not check the archive's build provenance\n%s", script, shell, out)
+		}
+		report = append(report, fmt.Sprintf("%s in %s installs it:\n%s", script, shell, strings.TrimRight(out, "\r\n")))
+	}
+	return strings.Join(report, "\n"), nil
+}
+
+// ghLogins are the environment variables that log gh in.
+var ghLogins = []string{"GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN"}
+
+// installEnv is the environment an install script runs in: this one, with gh logged out unless
+// provenance is set.
+func installEnv(provenance bool, tmp string) ([]string, error) {
+	if provenance {
+		return os.Environ(), nil
+	}
+	var env []string
+	for _, v := range os.Environ() {
+		name, _, _ := strings.Cut(v, "=")
+		if !slices.Contains(ghLogins, strings.ToUpper(name)) {
+			env = append(env, v)
+		}
+	}
+	// gh keeps its own login in its configuration directory.
+	config := filepath.Join(tmp, "gh-logged-out")
+	if err := os.Mkdir(config, 0o700); err != nil {
+		return nil, err
+	}
+	return append(env, "GH_CONFIG_DIR="+config), nil
+}
+
+// run runs a command with env as its environment, and returns its output, stderr included.
+func run(name string, args, env []string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.Env = env
+	out, err := cmd.CombinedOutput()
+	return string(out), err
 }
 
 // report runs strux version --json. Its fields must be exactly those of version.Info.

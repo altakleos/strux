@@ -4,8 +4,8 @@
 # that platform.
 #
 # Each tool is pinned in its own module under tools/, so it builds with the dependencies its
-# authors tested, and none of them reach strux's module. make workflows also needs shellcheck,
-# which actionlint runs on the workflows' scripts; CI's runners have it installed.
+# authors tested, and none of them reach strux's module. make lint and make workflows also need
+# shellcheck, for install.sh and for the workflows' scripts; CI's runners have it installed.
 
 tool = go tool -modfile=tools/$(1)/go.mod $(1)
 tool_modules := $(patsubst %/go.mod,%,$(wildcard tools/*/go.mod))
@@ -25,6 +25,8 @@ tidy:
 
 lint:
 	$(call tool,golangci-lint) run
+	@command -v shellcheck >/dev/null || { echo "make lint needs shellcheck, for install.sh"; exit 1; }
+	shellcheck internal/installers/install.sh
 
 test:
 	go test -race -shuffle=on ./...
@@ -37,7 +39,7 @@ workflows:
 	$(call tool,actionlint)
 
 # Builds the whole release, as a tag would but with a snapshot version, without publishing it,
-# into dist/.
+# into dist/, with the install scripts in build/.
 release-check:
 	$(call tool,goreleaser) check
 	$(call tool,goreleaser) release --snapshot --clean
