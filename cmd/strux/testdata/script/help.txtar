@@ -1,0 +1,48 @@
+# With no arguments, strux describes itself and its commands; help and --help say the same.
+exec strux
+cmp stdout help.yaml
+! stderr .
+exec strux help
+cmp stdout help.yaml
+exec strux --help
+cmp stdout help.yaml
+
+# --json carries the same fields.
+exec strux help --json
+cmp stdout help.json
+
+# A command's help lists the flags it inherits.
+exec strux help version
+cmp stdout version.yaml
+exec strux version --help
+cmp stdout version.yaml
+
+-- help.yaml --
+command: strux
+summary: Strux keeps agent work accountable.
+usage: strux [command] [flags]
+commands:
+  - name: help
+    summary: Show help for strux or one of its commands.
+  - name: version
+    summary: Show this build's version.
+flags:
+  - name: "--help"
+    short: "-h"
+    usage: Show help.
+  - name: "--json"
+    usage: Write the result as JSON.
+  - name: "--version"
+    usage: Show this build's version.
+-- help.json --
+{"command":"strux","summary":"Strux keeps agent work accountable.","usage":"strux [command] [flags]","commands":[{"name":"help","summary":"Show help for strux or one of its commands."},{"name":"version","summary":"Show this build's version."}],"flags":[{"name":"--help","short":"-h","usage":"Show help."},{"name":"--json","usage":"Write the result as JSON."},{"name":"--version","usage":"Show this build's version."}]}
+-- version.yaml --
+command: strux version
+summary: Show this build's version.
+usage: strux version [flags]
+flags:
+  - name: "--help"
+    short: "-h"
+    usage: Show help.
+  - name: "--json"
+    usage: Write the result as JSON.

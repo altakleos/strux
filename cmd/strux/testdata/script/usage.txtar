@@ -1,0 +1,17 @@
+# An invalid command line fails, writes nothing to stdout, and names the help that explains it.
+! exec strux verison
+! stdout .
+stderr '^strux: unknown command "verison"; did you mean "version"\? \(see "strux help"\)$'
+
+! exec strux version --frob
+! stdout .
+stderr '^strux: unknown flag: --frob \(see "strux help version"\)$'
+
+# Asking for help does not make an invalid command line valid.
+! exec strux frobnicate --help
+! stdout .
+stderr '^strux: unknown command "frobnicate" \(see "strux help"\)$'
+
+! exec strux -- version
+! stdout .
+stderr '^strux: command "version" must come before "--" \(see "strux help"\)$'

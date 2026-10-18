@@ -1,0 +1,31 @@
+version: "2"
+
+linters:
+  default: standard
+  enable:
+    - errorlint
+    - gocritic
+    - gosec
+    - misspell
+    - nolintlint
+    - unconvert
+    - unparam
+    - usestdlibvars
+  exclusions:
+    presets:
+      # Unchecked errors from closing files that were only read, and similar.
+      - std-error-handling
+    rules:
+      # The release tools open the files and run the programs their command lines name.
+      - path: ^internal/cmd/
+        linters: [gosec]
+        text: G204|G304
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/altakleos/strux

@@ -1,0 +1,85 @@
+# The release: strux for Linux, macOS and Windows on amd64 and arm64, each archived with LICENSE,
+# NOTICE, README.md and THIRD_PARTY_NOTICES, and checksums.txt. Every pull request builds it with
+# --snapshot, and a vX.Y.Z tag publishes it (.github/workflows/release.yml). check-release names
+# the runner that runs each platform's archive, so a new platform needs a runner there.
+#
+# Builds are reproducible: no build paths, no cgo, no build time in the binary, and every file in
+# an archive gets the commit's time and a fixed owner and mode, so the same commit gives the same
+# bytes on any machine. The binary takes its version and commit from git, through go build.
+version: 2
+
+project_name: strux
+
+builds:
+  - id: strux
+    main: ./cmd/strux
+    binary: strux
+    env:
+      - CGO_ENABLED=0
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+    mod_timestamp: "{{ .CommitTimestamp }}"
+    hooks:
+      post:
+        # The notices for the code this binary includes from other projects.
+        - cmd: go run ./internal/cmd/notices -o "dist/notices/{{ .Os }}_{{ .Arch }}/THIRD_PARTY_NOTICES" "{{ .Path }}"
+
+archives:
+  - id: strux
+    ids: [strux]
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    builds_info:
+      owner: root
+      group: root
+      mode: 0o755
+      mtime: "{{ .CommitDate }}"
+    files:
+      - src: LICENSE
+        info:
+          owner: root
+          group: root
+          mode: 0o644
+          mtime: "{{ .CommitDate }}"
+      - src: NOTICE
+        info:
+          owner: root
+          group: root
+          mode: 0o644
+          mtime: "{{ .CommitDate }}"
+      - src: README.md
+        info:
+          owner: root
+          group: root
+          mode: 0o644
+          mtime: "{{ .CommitDate }}"
+      - src: "dist/notices/{{ .Os }}_{{ .Arch }}/THIRD_PARTY_NOTICES"
+        strip_parent: true
+        info:
+          owner: root
+          group: root
+          mode: 0o644
+          mtime: "{{ .CommitDate }}"
+
+checksum:
+  name_template: checksums.txt
+  algorithm: sha256
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-dev+{{ .ShortCommit }}"
+
+changelog:
+  use: github-native
+
+release:
+  # Published as a draft; release.yml publishes it once every platform has run its archives.
+  draft: true
+  # A rerun of a failed release replaces its draft.
+  replace_existing_draft: true
