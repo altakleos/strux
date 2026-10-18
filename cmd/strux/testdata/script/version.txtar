@@ -1,0 +1,16 @@
+# version reports the build. What a test build reports depends on how go test built it, so this
+# checks the form; internal/version tests the values, and check-release checks a release build's.
+exec strux version
+stdout '^version: .'
+stdout '^go: go1\.\d+'
+stdout '^platform: [a-z0-9]+/[a-z0-9]+$'
+! stderr .
+cp stdout version.yaml
+
+# --version says the same.
+exec strux --version
+cmp stdout version.yaml
+
+# --json carries the same fields.
+exec strux version --json
+stdout '^\{"version":"[^"]+",.*"go":"go1\.[^"]+","platform":"[a-z0-9]+/[a-z0-9]+"\}$'

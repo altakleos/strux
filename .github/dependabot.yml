@@ -1,0 +1,64 @@
+# Updates arrive weekly, and only for versions published at least 14 days earlier; security
+# updates are not delayed.
+#
+# A tool's module under tools/ lists the tool and everything it needs as indirect requirements,
+# which Dependabot skips unless a rule allows them by name. Each tool module allows only its tool,
+# so an update moves the tool and takes the dependencies that version of the tool requires.
+#
+# Dependabot does not update the toolchain line in go.mod or zizmor's version in ci.yml.
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 14
+    groups:
+      go:
+        patterns: ["*"]
+  - package-ecosystem: gomod
+    directory: /tools/actionlint
+    allow:
+      - dependency-name: actionlint.kjanat.dev
+        dependency-type: all
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 14
+  - package-ecosystem: gomod
+    directory: /tools/golangci-lint
+    allow:
+      - dependency-name: github.com/golangci/golangci-lint/v2
+        dependency-type: all
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 14
+  - package-ecosystem: gomod
+    directory: /tools/goreleaser
+    allow:
+      - dependency-name: github.com/goreleaser/goreleaser/v2
+        dependency-type: all
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 14
+  - package-ecosystem: gomod
+    directory: /tools/govulncheck
+    allow:
+      - dependency-name: golang.org/x/vuln
+        dependency-type: all
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 14
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 14
+    groups:
+      actions:
+        patterns: ["*"]
