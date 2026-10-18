@@ -1,7 +1,8 @@
 # The release: strux for Linux, macOS and Windows on amd64 and arm64, each archived with LICENSE,
-# NOTICE, README.md and THIRD_PARTY_NOTICES, and checksums.txt. Every pull request builds it with
-# --snapshot, and a vX.Y.Z tag publishes it (.github/workflows/release.yml). check-release names
-# the runner that runs each platform's archive, so a new platform needs a runner there.
+# NOTICE, README.md and THIRD_PARTY_NOTICES; install.sh and install.ps1, which install it; and
+# checksums.txt. Every pull request builds it with --snapshot, and a vX.Y.Z tag publishes it
+# (.github/workflows/release.yml). check-release names the runner that runs each platform's
+# archive, so a new platform needs a runner there.
 #
 # Builds are reproducible: no build paths, no cgo, no build time in the binary, and every file in
 # an archive gets the commit's time and a fixed owner and mode, so the same commit gives the same
@@ -9,6 +10,13 @@
 version: 2
 
 project_name: strux
+
+before:
+  hooks:
+    # The install scripts, with this release's version written in. GoReleaser renders files only
+    # in its paid edition, and requires dist/ to be empty after these hooks, so they go in build/,
+    # and checksum and release below add them to the release.
+    - go run ./internal/cmd/installers -version "{{ .Version }}" -o build
 
 builds:
   - id: strux
@@ -71,6 +79,9 @@ archives:
 checksum:
   name_template: checksums.txt
   algorithm: sha256
+  extra_files:
+    - glob: build/install.sh
+    - glob: build/install.ps1
 
 snapshot:
   version_template: "{{ incpatch .Version }}-dev+{{ .ShortCommit }}"
@@ -84,3 +95,6 @@ release:
   draft: true
   # A rerun of a failed release replaces its draft.
   replace_existing_draft: true
+  extra_files:
+    - glob: build/install.sh
+    - glob: build/install.ps1

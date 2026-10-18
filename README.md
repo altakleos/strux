@@ -6,14 +6,30 @@ Strux keeps agent work accountable. Applications describe their concepts as vers
 
 ## Install
 
-Download the archive for your platform from the [latest release](https://github.com/altakleos/strux/releases/latest): `strux_<version>_<os>_<arch>.tar.gz`, or `.zip` on Windows, where `<version>` is the release without its `v`, `<os>` is `linux`, `darwin` or `windows`, and `<arch>` is `amd64` or `arm64`. Then check that the release workflow built it:
+On macOS and Linux:
+
+```sh
+curl -fsSL https://github.com/altakleos/strux/releases/latest/download/install.sh | sh
+```
+
+On Windows, in PowerShell:
+
+```powershell
+irm https://github.com/altakleos/strux/releases/latest/download/install.ps1 | iex
+```
+
+Each release from v0.0.2 carries these scripts, and each script installs its own release: to install another, replace `latest/download` with `download/vX.Y.Z`. The script checks the archive's SHA-256 against the release's `checksums.txt` and, when [gh](https://cli.github.com) is installed and logged in, the archive's build provenance. It installs strux into `~/.local/bin`, or the directory in `STRUX_INSTALL_DIR`, and says if that directory is not on your `PATH`. `STRUX_RELEASE_URL` downloads the release's assets from a mirror instead.
+
+To pin strux in a project, use [mise](https://mise.jdx.dev): `mise use github:altakleos/strux@X.Y.Z` records the version in `mise.toml`, and mise checks each download's digest and build provenance.
+
+Or download the archive for your platform from the [latest release](https://github.com/altakleos/strux/releases/latest): `strux_<version>_<os>_<arch>.tar.gz`, or `.zip` on Windows, where `<version>` is the release without its `v`, `<os>` is `linux`, `darwin` or `windows`, and `<arch>` is `amd64` or `arm64`. Then check that the release workflow built it:
 
 ```sh
 gh attestation verify strux_<version>_<os>_<arch>.tar.gz --repo altakleos/strux \
   --signer-workflow altakleos/strux/.github/workflows/release.yml
 ```
 
-Or build it with Go 1.27 or later:
+Or build it with Go 1.27 or later, which gives a binary of your own rather than the release's:
 
 ```sh
 go install github.com/altakleos/strux/cmd/strux@latest
