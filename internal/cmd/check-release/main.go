@@ -406,18 +406,23 @@ func install(dir, platform, bin, tmp string, provenance bool) (string, error) {
 // ghLogins are the environment variables that log gh in.
 var ghLogins = []string{"GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN"}
 
-// installEnv is the environment an install script runs in: this one, with gh logged out unless
-// provenance is set.
+// installEnv is the environment an install script runs in: this one, as a new shell gets it, with
+// gh logged out unless provenance is set.
 func installEnv(provenance bool, tmp string) ([]string, error) {
-	if provenance {
-		return os.Environ(), nil
-	}
 	var env []string
 	for _, v := range os.Environ() {
 		name, _, _ := strings.Cut(v, "=")
-		if !slices.Contains(ghLogins, strings.ToUpper(name)) {
+		switch name = strings.ToUpper(name); {
+		// Each PowerShell sets PSModulePath for its own modules, and Windows PowerShell started
+		// with PowerShell 7's, as under a CI step that runs in pwsh, cannot load its own.
+		case name == "PSMODULEPATH":
+		case !provenance && slices.Contains(ghLogins, name):
+		default:
 			env = append(env, v)
 		}
+	}
+	if provenance {
+		return env, nil
 	}
 	// gh keeps its own login in its configuration directory.
 	config := filepath.Join(tmp, "gh-logged-out")
