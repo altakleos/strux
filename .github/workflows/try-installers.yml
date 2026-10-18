@@ -1,0 +1,41 @@
+# Temporary, for this pull request only: runs the install scripts, with gh logged in, against
+# v0.0.1's attested archives on every platform, which only a release does otherwise.
+name: try-installers
+
+on:
+  pull_request:
+
+permissions: {}
+
+jobs:
+  try:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm, macos-15, macos-15-intel, windows-2025, windows-11-arm]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      attestations: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh --version
+          gh release download v0.0.1 --repo "$GITHUB_REPOSITORY" --dir v001
+          go run ./internal/cmd/installers -version 0.0.1 -o v001
+          for f in install.sh install.ps1; do
+            if command -v sha256sum >/dev/null; then sum=$(sha256sum < "v001/$f"); else sum=$(shasum -a 256 < "v001/$f"); fi
+            echo "${sum%% *}  $f" >> v001/checksums.txt
+          done
+          go run ./internal/cmd/check-release -dir v001 -platform "$(go env GOOS)/$(go env GOARCH)" \
+            -commit 8cdb3179e462e3638ff9b704a9f1529a776dfa8c -tag v0.0.1 -provenance
