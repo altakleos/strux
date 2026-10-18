@@ -130,11 +130,15 @@ jobs:
       contents: read
     outputs:
       runners: ${{ steps.runners.outputs.matrix }}
+      tags: ${{ steps.tags.outputs.tags }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0 # the version comes from the latest tag
           persist-credentials: false
+      - id: tags
+        name: Record the tags this build sees
+        run: echo "tags=$(git tag --merged HEAD | tr '\n' ' ')" >> "$GITHUB_OUTPUT"
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
@@ -156,7 +160,7 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  # The same commit gives the same bytes on another kind of machine.
+  # The same commit and tags give the same bytes on another kind of machine.
   reproducible:
     needs: build
     runs-on: macos-15
@@ -168,6 +172,18 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+      # A build's version comes from the tags it sees, and a tag pushed after the Linux build
+      # checked out would reach this checkout too.
+      - name: Keep only the tags the Linux build saw
+        env:
+          TAGS: ${{ needs.build.outputs.tags }}
+        run: |
+          for tag in $(git tag); do
+            case " $TAGS " in
+              *" $tag "*) ;;
+              *) git tag -d "$tag" ;;
+            esac
+          done
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
