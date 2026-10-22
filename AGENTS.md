@@ -29,6 +29,7 @@ This repository is the Strux implementation, and it is public. Never refer to a 
 
 - `evals/` compares an agent on the same tasks with strux and without it, and checks the with-strux arm for regressions. It is Python, with its own `pyproject.toml` and `uv.lock`, so none of it reaches the Go module. Tasks are data in `evals/tasks/*.yaml`; the arms differ only in whether `bin/strux` exists in the sandbox; scorers are deterministic, never a model. A task's expected answer in an arm is what a correct agent says there, so the without-strux arm expects "unavailable".
 - CI's `evals` job runs `make evals-check`, which runs both arms against a scripted model: no API key, no cost. It is part of `deployable`, and `make check` runs it when uv is installed, and says it skipped it when not. Comparisons with a real agent cost money and are run by hand; see `evals/README.md`. Add a task for each command and each output an agent relies on, as the testscripts do.
+- `evals/baselines/` holds the with-strux pass rates of known-good versions; `python -m strux_evals.baseline check` fails a run that is lower by more than chance explains. Record a baseline from a live run of a released strux, with enough trials to see a drop, and name the strux version in its `--note`.
 - uv is installed in CI at a pinned version, which Dependabot does not update; Dependabot updates the packages in `evals/uv.lock`.
 
 ## Dependencies and tools
