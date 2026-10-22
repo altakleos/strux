@@ -37,6 +37,20 @@ go install github.com/altakleos/strux/cmd/strux@latest
 
 Release archives are reproducible: building a release's tag gives the same archives, byte for byte, on any machine.
 
+## Uninstall
+
+The install scripts write one file and change nothing else: no shell profile, no registry. Delete it:
+
+```sh
+rm ~/.local/bin/strux        # or "$STRUX_INSTALL_DIR/strux" if you set that
+```
+
+```powershell
+Remove-Item "$HOME\.local\bin\strux.exe"   # or "$env:STRUX_INSTALL_DIR\strux.exe"
+```
+
+If you added the install directory to your `PATH` yourself, you can leave it; an empty directory on `PATH` does no harm. A strux installed another way is removed the way it was installed: with mise, remove it from `mise.toml` and run `mise uninstall github:altakleos/strux`; with `go install`, delete `strux` from `$(go env GOBIN)`, or from `$(go env GOPATH)/bin` when that is empty; from a downloaded archive, delete the files you extracted.
+
 ## Use
 
 ```sh
