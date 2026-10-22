@@ -21,6 +21,12 @@ def strux_binary() -> Path:
     return binary
 
 
+def is_elf(path: Path) -> bool:
+    """Whether path is a Linux executable, which is what a Docker sandbox can run."""
+    with path.open("rb") as f:
+        return f.read(4) == b"\x7fELF"
+
+
 def sandbox_files(arm: str) -> dict[str, str]:
     """The files copied into the sandbox for an arm, as Inspect's Sample.files maps them."""
     if arm not in ARMS:

@@ -10,9 +10,9 @@ import pytest
 from inspect_ai import eval as inspect_eval
 from inspect_ai.model import ModelOutput, get_model
 
-from strux_evals.arms import ARMS, sandbox_files
+from strux_evals.arms import ARMS, is_elf, sandbox_files, strux_binary
 from strux_evals.dataset import UNAVAILABLE, expected, load_specs, samples
-from strux_evals.task import normalize, strux_stub
+from strux_evals.task import is_correct, strux_stub
 
 REPO = Path(__file__).resolve().parents[2]
 
@@ -103,32 +103,58 @@ def test_saying_unavailable_with_strux_is_wrong(tmp_path):
 
 
 @pytest.mark.parametrize(
-    ("answer", "ok"),
+    ("completion", "target", "ok"),
     [
-        ("v0.0.1", True),
-        (" `v0.0.1`\n", True),
-        ('"v0.0.1"', True),
-        ("v0.0.12", False),
-        ("maybe v0.0.1?", False),
-        ("", False),
+        ("v0.0.1", "v0.0.1", True),
+        (" `v0.0.1`\n", "v0.0.1", True),
+        ("The version is v0.0.1.\nANSWER: v0.0.1", "v0.0.1", True),
+        ("ANSWER: first\nthinking again\nanswer: v0.0.1.", "v0.0.1", True),
+        ("Unavailable.", "unavailable", True),
+        ("v0.0.12", "v0.0.1", False),
+        ("maybe v0.0.1?", "v0.0.1", False),
+        ("It is v0.0.1.", "v0.0.1", False),
+        ("ANSWER: v0.0.12", "v0.0.1", False),
+        ("", "", False),
+        ("anything", "", False),
     ],
 )
-def test_scorer_is_an_exact_match(answer, ok):
-    assert (normalize(answer) == "v0.0.1") is ok
+def test_scorer_is_an_exact_match(completion, target, ok):
+    assert is_correct(completion, target) is ok
 
 
 @pytest.mark.parametrize("agent", ["claude_code", "codex_cli"])
-def test_live_agents_need_docker_and_a_pinned_version(agent):
+def test_live_agents_need_docker_a_pinned_version_and_a_linux_binary(agent):
     with pytest.raises(ValueError, match="Docker"):
         strux_stub(agent=agent, agent_version="1.2.3")
-    for floating in ("", "auto", "latest"):
+    for floating in ("", "auto", "latest", "1", "^1.2.3", ">=1.2.3", "1.2"):
         with pytest.raises(ValueError, match="pin"):
             strux_stub(agent=agent, agent_version=floating, sandbox="docker")
+    if not is_elf(strux_binary()):  # a host that is not Linux builds a binary a container cannot run
+        with pytest.raises(ValueError, match="GOOS=linux"):
+            strux_stub(arm="with_strux", agent=agent, agent_version="1.2.3", sandbox="docker")
 
 
 @pytest.mark.parametrize("agent", ["claude_code", "codex_cli"])
-def test_live_agents_build_when_pinned_in_docker(agent):
-    assert strux_stub(arm="with_strux", agent=agent, agent_version="1.2.3", sandbox="docker").solver is not None
+def test_live_agents_build_when_pinned_in_docker(agent, tmp_path, monkeypatch):
+    elf = tmp_path / "strux"
+    elf.write_bytes(b"\x7fELF")
+    monkeypatch.setenv("STRUX_BIN", str(elf))
+    assert strux_stub(arm="without_strux", agent=agent, agent_version="1.2.3", sandbox="docker").solver is not None
+
+
+def test_offline_agent_takes_no_version():
+    with pytest.raises(ValueError, match="no version"):
+        strux_stub(agent_version="1.2.3")
+
+
+def test_a_rebuilt_binary_is_run_again(tmp_path, monkeypatch):
+    binary = tmp_path / "strux"
+    monkeypatch.setenv("STRUX_BIN", str(binary))
+    spec = load_specs()[0]
+    for version in ("v1", "v22"):
+        binary.write_text(f'#!/bin/sh\necho \'{{"version":"{version}"}}\'\n')
+        binary.chmod(0o755)
+        assert expected(spec, "with_strux") == version
 
 
 def test_unknown_agent_is_rejected():

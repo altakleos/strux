@@ -3,8 +3,9 @@
 # expect.field, from running strux with expect.run.
 id: version
 prompt: >-
-  Programs installed for you are in ./bin. Find out which version of strux is installed, and
-  submit that version string as your answer. If strux is not available, submit "unavailable".
+  Programs installed for you are in ./bin. Find out which version of strux is installed. If strux
+  is not available, the answer is "unavailable". End your reply with a line "ANSWER: <answer>"
+  holding only the version string, or "unavailable".
 expect:
   run: [version, --json]
   field: version

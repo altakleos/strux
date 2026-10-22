@@ -36,7 +36,8 @@ def load_specs(directory: Path = TASKS_DIR) -> list[Spec]:
 
 
 @functools.cache
-def _strux_says(binary: str, run: tuple[str, ...], field: str) -> str:
+def _strux_says(binary: str, stamp: tuple[int, int], run: tuple[str, ...], field: str) -> str:
+    # stamp is the binary's modification time and size, so a rebuilt binary is run again.
     out = subprocess.run([binary, *run], check=True, capture_output=True, text=True).stdout
     answer = str(json.loads(out)[field]).strip()
     if not answer or answer == UNAVAILABLE:
@@ -51,7 +52,9 @@ def expected(spec: Spec, arm: str) -> str:
     evals, which measure whether an agent reports what is in its sandbox."""
     if arm == "without_strux":
         return UNAVAILABLE
-    return _strux_says(str(strux_binary()), spec.run, spec.field)
+    binary = strux_binary()
+    info = binary.stat()
+    return _strux_says(str(binary), (info.st_mtime_ns, info.st_size), spec.run, spec.field)
 
 
 def samples(arm: str, specs: list[Spec] | None = None) -> list[Sample]:

@@ -19,13 +19,14 @@ This is a spike: one task, `tasks/version.yaml`, that exercises the pieces. In t
 This path is untested: this spike has not run a real agent, Claude Code or Codex. It costs money and CI does not run it. Build strux, then run each arm several times:
 
 ```sh
-go build -o /tmp/strux ./cmd/strux
+# the sandbox is Linux: build for its architecture, such as arm64 on Apple silicon
+GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -o /tmp/strux ./cmd/strux
 cd evals
 export STRUX_BIN=/tmp/strux ANTHROPIC_API_KEY=...
 for arm in with_strux without_strux; do
-  uv run inspect eval strux_evals/task.py@strux_stub -T arm=$arm -T agent=claude_code -T agent_version=<pinned version> -T sandbox=docker \
+  uv run inspect eval strux_evals/task.py@strux_stub -T arm=$arm -T agent=claude_code -T agent_version=X.Y.Z -T sandbox=docker \
     --model anthropic/<model> --epochs 5 --log-dir logs/$arm
 done
 ```
 
-`-T agent=codex_cli` runs OpenAI's Codex CLI instead, with `OPENAI_API_KEY` and `--model openai/<model>`; it is as untested as the Claude Code path. A live agent must run with `-T sandbox=docker`, so that the without-strux arm cannot reach a strux installed on your machine, and with a pinned `agent_version`; the task refuses both otherwise. `token_limit` (default 500,000 per sample) caps cost. Docker uses Inspect's default image, and this path has not been run. Report the pass rate of each arm over its epochs, not one run.
+`-T agent=codex_cli` runs OpenAI's Codex CLI instead, with `OPENAI_API_KEY` and `--model openai/<model>`; it is as untested as the Claude Code path. A live agent must run with `-T sandbox=docker`, so that the without-strux arm cannot reach a strux installed on your machine, and with an exact `agent_version` (X.Y.Z); the task refuses both otherwise, and refuses a strux that is not a Linux binary. It cannot check the architecture. A live agent's answer is the last `ANSWER:` line of its reply. `token_limit` (default 500,000 per sample) caps cost. Docker uses Inspect's default image, and this path has not been run. Report the pass rate of each arm over its epochs, not one run.
