@@ -13,9 +13,11 @@ tool_modules := $(patsubst %/go.mod,%,$(wildcard tools/*/go.mod))
 # A go.work file in a parent directory would put go in workspace mode, which rejects -modfile.
 export GOWORK := off
 
-.PHONY: check tidy lint test vuln workflows release-check
+.PHONY: check tidy lint test vuln workflows release-check evals-check
 
 check: tidy lint test vuln workflows release-check
+	@if command -v uv >/dev/null; then $(MAKE) evals-check; \
+	else echo "make check skipped evals-check, which needs uv; CI runs it, so install uv and run make evals-check too"; fi
 
 # go.mod and go.sum are tidy, and every downloaded module matches go.sum.
 tidy:
@@ -43,3 +45,11 @@ workflows:
 release-check:
 	$(call tool,goreleaser) check
 	$(call tool,goreleaser) release --snapshot --clean
+
+# The eval harness's wiring: ruff, then pytest, which runs both arms against a scripted model, so it
+# needs no API key and costs nothing. make check runs it when uv is installed and says so when it
+# is not. The live comparison with a real agent is not run here: see evals/README.md.
+evals-check:
+	@command -v uv >/dev/null || { echo "make evals-check needs uv"; exit 1; }
+	cd evals && uv run --locked ruff check . && uv run --locked ruff format --check .
+	cd evals && uv run --locked pytest

@@ -122,6 +122,26 @@ jobs:
           advanced-security: false
           annotations: true
 
+  # The eval harness's wiring, against a scripted model: no API key, no cost. The comparison with a
+  # real agent is run by hand; see evals/README.md. uv is installed at a pinned version, which
+  # Dependabot does not update.
+  evals:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: ${{ !startsWith(github.ref, 'refs/tags/') }}
+          cache-dependency-path: go.sum
+      - run: pipx install uv==0.11.32
+      - run: make evals-check
+
   # Builds the release as a tag would, with a snapshot version, without publishing it.
   build:
     runs-on: ubuntu-24.04
@@ -239,7 +259,7 @@ jobs:
   # Passes only when every check passed: the change is deployable.
   deployable:
     if: always()
-    needs: [tidy, lint, test, vuln, workflows, build, reproducible, smoke]
+    needs: [tidy, lint, test, vuln, workflows, evals, build, reproducible, smoke]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions: {}

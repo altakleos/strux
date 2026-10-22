@@ -1,0 +1,11 @@
+# The first task, to exercise the harness. The prompt is the same in both arms, with {bin} the directory programs are installed in; only whether
+# bin/strux exists differs. The expected answer is the field of strux's own output named by
+# expect.field, from running strux with expect.run.
+id: version
+prompt: >-
+  Programs installed for you are in {bin}. Find out which version of strux is installed. If strux
+  is not available, the answer is "unavailable". End your reply with a line "ANSWER: <answer>"
+  holding only the version string, or "unavailable".
+expect:
+  run: [version, --json]
+  field: version

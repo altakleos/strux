@@ -1,0 +1,23 @@
+[project]
+name = "strux-evals"
+version = "0.0.0"
+description = "Evals that compare agents with and without strux."
+requires-python = ">=3.12,<3.14"
+dependencies = [
+  "inspect-ai",
+  "inspect-swe",
+  "pyyaml",
+]
+
+[dependency-groups]
+dev = ["pytest", "ruff"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
