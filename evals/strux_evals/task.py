@@ -36,9 +36,26 @@ def claude_code_agent(version: str = "auto") -> Solver:
     return claude_code(version=version)
 
 
+@solver
+def codex_cli_agent(version: str = "auto") -> Solver:
+    """OpenAI's Codex CLI, for live runs. Needs an OpenAI API key and a pinned Codex version."""
+    from inspect_swe import codex_cli
+
+    return codex_cli(version=version)
+
+
+AGENTS = {
+    "offline": offline_agent,
+    "claude_code": claude_code_agent,
+    "codex_cli": codex_cli_agent,
+}
+
+
 @task
 def strux_stub(arm: str = "with_strux", agent: str = "offline") -> Task:
-    solver_ = claude_code_agent() if agent == "claude_code" else offline_agent()
+    if agent not in AGENTS:
+        raise ValueError(f"unknown agent {agent!r}; agents are {', '.join(AGENTS)}")
+    solver_ = AGENTS[agent]()
     return Task(
         dataset=samples(arm),
         solver=solver_,

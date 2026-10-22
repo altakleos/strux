@@ -83,3 +83,13 @@ def test_without_strux_the_command_fails_in_the_sandbox(tmp_path):
     result = bash_result(log)
     assert "bin/strux: No such file or directory" in result.text
     assert log.results.scores[0].metrics["accuracy"].value == 0.0
+
+
+@pytest.mark.parametrize("agent", ["offline", "claude_code", "codex_cli"])
+def test_each_agent_builds(agent):
+    assert strux_stub(arm="with_strux", agent=agent).solver is not None
+
+
+def test_unknown_agent_is_rejected():
+    with pytest.raises(ValueError, match="unknown agent"):
+        strux_stub(arm="with_strux", agent="codex")

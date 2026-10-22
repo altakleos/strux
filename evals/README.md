@@ -16,7 +16,7 @@ This is a spike: one task, `tasks/version.yaml`, that exercises the pieces. It p
 
 ## Compare with a real agent
 
-This path is untested: this spike has not run a real agent. It costs money and CI does not run it. Build strux, then run each arm several times:
+This path is untested: this spike has not run a real agent, Claude Code or Codex. It costs money and CI does not run it. Build strux, then run each arm several times:
 
 ```sh
 go build -o /tmp/strux ./cmd/strux
@@ -28,4 +28,4 @@ for arm in with_strux without_strux; do
 done
 ```
 
-`inspect_swe` runs Claude Code in the task's sandbox, which this spike sets to `local`; a run that isolates the agent needs a Docker sandbox with an image holding a pinned Claude Code, which is the next step. Report the pass rate of each arm over its epochs, not one run.
+`-T agent=codex_cli` runs OpenAI's Codex CLI instead, with `OPENAI_API_KEY` and `--model openai/<model>`; it is as untested as the Claude Code path. `inspect_swe` runs the agent in the task's sandbox, which this spike sets to `local`; a run that isolates the agent needs a Docker sandbox with an image holding a pinned agent, which is the next step. Report the pass rate of each arm over its epochs, not one run.
