@@ -29,4 +29,33 @@ for arm in with_strux without_strux; do
 done
 ```
 
-`-T agent=codex_cli` runs OpenAI's Codex CLI instead, with `OPENAI_API_KEY` and `--model openai/<model>`; it is as untested as the Claude Code path. A live agent works in `/work`, with the programs in `/work/bin`, and its limits are `token_limit` and `time_limit` (900 seconds), not a message count. It must run with `-T sandbox=docker`, so that the without-strux arm cannot reach a strux installed on your machine, and with an exact `agent_version` (X.Y.Z); the task refuses both otherwise, and refuses a strux that is not a Linux binary. It cannot check the architecture. A live agent's answer is the last `ANSWER:` line of its reply. `token_limit` (default 500,000 per sample) caps cost. Docker uses Inspect's default image, and this path has not been run. Report the pass rate of each arm over its epochs, not one run.
+`-T agent=codex_cli` runs OpenAI's Codex CLI instead, with `OPENAI_API_KEY` and `--model openai/<model>`; it is as untested as the Claude Code path. A live agent works in `/work`, with the programs in `/work/bin`, and its limits are `token_limit` and `time_limit` (900 seconds), not a message count. It must run with `-T sandbox=docker`, so that the without-strux arm cannot reach a strux installed on your machine, and with an exact `agent_version` (X.Y.Z); the task refuses both otherwise, and refuses a strux that is not a Linux binary. It cannot check the architecture. A live agent's answer is the last `ANSWER:` line of its reply. `token_limit` (default 500,000 per sample) caps cost. Docker uses Inspect's default image, and this path has not been run. 
+
+## Compare the arms
+
+After a run of each arm, set them side by side:
+
+```sh
+uv run python -m strux_evals.compare logs/with_strux logs/without_strux   # --json for JSON
+```
+
+It reads the logs, groups runs by task, agent, agent version and model, and reports for each arm the pass rate over all trials with a 95% interval, mean tokens and mean seconds, and the difference between the arms. A trial that errored is counted apart, not as a failure. If the intervals overlap it says so: run more epochs before calling a difference. Run each arm several times; one run is a sample of one.
+
+## Catch regressions with a baseline
+
+A baseline is the with-strux pass rate of a known-good strux, committed in `baselines/`. Record one from the logs of a run, then check later runs against it:
+
+```sh
+uv run python -m strux_evals.baseline record baselines/main.json logs/with_strux --note "strux v0.1.0"
+uv run python -m strux_evals.baseline check baselines/main.json logs/with_strux
+```
+
+`check` fails (exit 1) for a group whose pass rate is lower than the baseline's by more than chance explains (an exact one-sided Fisher test, p < 0.05), whose run has fewer than 10 trials, or that has no trials; exit 2 is a bad command line or unreadable input. Groups are task, agent, agent version and model, so a baseline made with one agent says nothing about another. An errored trial is not a failure and is left out. The check only sees large drops unless there are many trials. Against a baseline of all passes, with equal trials on each side, it flags a run at or below:
+
+| trials per side | flagged at |
+|---|---|
+| 10 | 6 passes (60%) |
+| 20 | 15 passes (75%) |
+| 40 | 35 passes (88%) |
+
+Use 20 or more per group for a baseline you rely on. Nothing runs the check automatically yet; a live run needs an API key and Docker.
