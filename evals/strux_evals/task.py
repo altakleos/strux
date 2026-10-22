@@ -9,7 +9,7 @@ from inspect_ai.scorer import CORRECT, INCORRECT, Score, Target, accuracy, score
 from inspect_ai.solver import TaskState
 from inspect_ai.tool import bash
 
-from .arms import is_elf, strux_binary
+from .arms import DOCKER_WORKDIR, bin_dir, is_elf, strux_binary
 from .dataset import samples
 
 # An exact release, so two runs use the same agent. "latest" and ranges follow whatever is current.
@@ -56,14 +56,14 @@ def claude_code_agent(version: str) -> Agent:
     """The real thing, for live runs. Needs an API key."""
     from inspect_swe import claude_code
 
-    return claude_code(version=version)
+    return claude_code(version=version, cwd=DOCKER_WORKDIR)
 
 
 def codex_cli_agent(version: str) -> Agent:
     """OpenAI's Codex CLI, for live runs. Needs an OpenAI API key."""
     from inspect_swe import codex_cli
 
-    return codex_cli(version=version)
+    return codex_cli(version=version, cwd=DOCKER_WORKDIR)
 
 
 AGENTS = {
@@ -80,10 +80,13 @@ def strux_stub(
     agent_version: str = "",
     sandbox: str = "local",
     token_limit: int = 500_000,
+    time_limit: int = 900,
 ) -> Task:
     """One comparison arm. A live agent must run in a Docker sandbox, so that it cannot reach a
-    strux installed on the host, and at a pinned version, so that runs are comparable. The offline
-    agent runs on the host, but only ever runs bin/strux, so a strux on the PATH does not reach it."""
+    strux installed on the host, and at a pinned version, so that runs are comparable. It works in
+    /work, which holds the programs in /work/bin. Its limits are tokens and seconds, because a message
+    limit counts a live agent's whole conversation and would cut off a thorough one. The offline agent
+    runs on the host, but only ever runs bin/strux, so a strux on the PATH does not reach it."""
     if agent not in AGENTS:
         raise ValueError(f"unknown agent {agent!r}; agents are {', '.join(AGENTS)}")
     if agent == "offline":
@@ -97,11 +100,11 @@ def strux_stub(
         if arm == "with_strux" and not is_elf(strux_binary()):
             raise ValueError("a Docker sandbox runs Linux: build strux with GOOS=linux and the container's GOARCH")
     return Task(
-        dataset=samples(arm),
+        dataset=samples(arm, bin=bin_dir(sandbox)),
         solver=AGENTS[agent](agent_version),
         scorer=submitted_target(),
         sandbox=sandbox,
-        message_limit=20,
         token_limit=token_limit,
+        time_limit=time_limit,
         metadata={"arm": arm, "agent": agent, "agent_version": agent_version},
     )

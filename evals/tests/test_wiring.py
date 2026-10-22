@@ -65,6 +65,14 @@ def test_expected_answers_per_arm():
     assert expected(spec, "with_strux") not in ("", UNAVAILABLE)
 
 
+def test_docker_layout_is_absolute_and_the_prompt_names_it():
+    a, b = samples("with_strux", bin="/work/bin"), samples("without_strux", bin="/work/bin")
+    assert all("/work/bin" in s.input and "{bin}" not in s.input for s in a + b)
+    assert list(a[0].files) == ["/work/bin/strux"] and list(b[0].files) == ["/work/bin/.keep"]
+    assert all(s.setup == "mkdir -p /work/bin && find /work/bin -type f -exec chmod +x {} +" for s in a + b)
+    assert [s.input for s in a] == [s.input for s in b]
+
+
 def test_unknown_arm_is_rejected():
     with pytest.raises(ValueError):
         sandbox_files("with_something_else")

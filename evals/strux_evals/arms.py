@@ -6,8 +6,16 @@ from pathlib import Path
 
 ARMS = ("with_strux", "without_strux")
 
-# Where programs installed for the agent live, relative to its working directory.
-BIN = "bin"
+# Where programs installed for the agent live. The local sandbox is a temporary directory on the host
+# and writes an absolute path to the host itself, so there it is relative to that directory. A Docker
+# sandbox has no say in its working directory, which may be /, so there it is a directory of our own.
+LOCAL_BIN = "bin"
+DOCKER_WORKDIR = "/work"
+DOCKER_BIN = f"{DOCKER_WORKDIR}/bin"
+
+
+def bin_dir(sandbox: str) -> str:
+    return DOCKER_BIN if sandbox == "docker" else LOCAL_BIN
 
 
 def strux_binary() -> Path:
@@ -27,16 +35,16 @@ def is_elf(path: Path) -> bool:
         return f.read(4) == b"\x7fELF"
 
 
-def sandbox_files(arm: str) -> dict[str, str]:
+def sandbox_files(arm: str, bin: str = LOCAL_BIN) -> dict[str, str]:
     """The files copied into the sandbox for an arm, as Inspect's Sample.files maps them."""
     if arm not in ARMS:
         raise ValueError(f"unknown arm {arm!r}; arms are {', '.join(ARMS)}")
     if arm == "with_strux":
-        return {f"{BIN}/strux": str(strux_binary())}
-    return {f"{BIN}/.keep": ""}
+        return {f"{bin}/strux": str(strux_binary())}
+    return {f"{bin}/.keep": ""}
 
 
-def setup_script() -> str:
+def setup_script(bin: str = LOCAL_BIN) -> str:
     """Run in the sandbox before the agent starts; the same for both arms. It does not ignore
     failures, so a harness fault stops the sample instead of looking like strux failing."""
-    return f"mkdir -p {BIN} && find {BIN} -type f -exec chmod +x {{}} +"
+    return f"mkdir -p {bin} && find {bin} -type f -exec chmod +x {{}} +"

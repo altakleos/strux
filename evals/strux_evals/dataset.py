@@ -9,7 +9,7 @@ from pathlib import Path
 import yaml
 from inspect_ai.dataset import Sample
 
-from .arms import sandbox_files, setup_script, strux_binary
+from .arms import LOCAL_BIN, sandbox_files, setup_script, strux_binary
 
 TASKS_DIR = Path(__file__).resolve().parent.parent / "tasks"
 
@@ -57,14 +57,14 @@ def expected(spec: Spec, arm: str) -> str:
     return _strux_says(str(binary), (info.st_mtime_ns, info.st_size), spec.run, spec.field)
 
 
-def samples(arm: str, specs: list[Spec] | None = None) -> list[Sample]:
+def samples(arm: str, specs: list[Spec] | None = None, bin: str = LOCAL_BIN) -> list[Sample]:
     return [
         Sample(
             id=spec.id,
-            input=spec.prompt,
+            input=spec.prompt.format(bin=bin),
             target=expected(spec, arm),
-            files=sandbox_files(arm),
-            setup=setup_script(),
+            files=sandbox_files(arm, bin),
+            setup=setup_script(bin),
             metadata={"arm": arm},
         )
         for spec in specs or load_specs()
