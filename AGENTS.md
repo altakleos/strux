@@ -25,6 +25,12 @@ This repository is the Strux implementation, and it is public. Never refer to a 
 - `cmd/strux/testdata/script/*.txtar` are transcripts of strux as an agent sees it, run by testscript. Add one for each command and each output an agent relies on.
 - Unit tests sit beside the code they test; the exit codes are tested in `internal/cli`.
 
+## Evals
+
+- `evals/` compares an agent on the same tasks with strux and without it, and checks the with-strux arm for regressions. It is Python, with its own `pyproject.toml` and `uv.lock`, so none of it reaches the Go module. Tasks are data in `evals/tasks/*.yaml`; the arms differ only in whether `bin/strux` exists in the sandbox; scorers are deterministic, never a model.
+- CI's `evals` job runs `make evals-check`, which runs both arms against a scripted model: no API key, no cost. It is part of `deployable`. Comparisons with a real agent cost money and are run by hand; see `evals/README.md`. Add a task for each command and each output an agent relies on, as the testscripts do.
+- uv is installed in CI at a pinned version, which Dependabot does not update; Dependabot updates the packages in `evals/uv.lock`.
+
 ## Dependencies and tools
 
 - The Go toolchain is pinned once, by the `toolchain` line in `go.mod`, and CI installs that version. Dependabot does not update it; govulncheck fails when the pinned toolchain has a known vulnerability, and that is the time to move it to the latest patch release.

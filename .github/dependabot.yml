@@ -53,6 +53,15 @@ updates:
       interval: weekly
     cooldown:
       default-days: 14
+  - package-ecosystem: uv
+    directory: /evals
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 14
+    groups:
+      evals:
+        patterns: ["*"]
   - package-ecosystem: github-actions
     directory: /
     schedule:
