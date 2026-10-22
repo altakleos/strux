@@ -2,7 +2,6 @@
 agent's sandbox. The model, the tasks, the prompt and the permissions are the same."""
 
 import os
-import stat
 from pathlib import Path
 
 ARMS = ("with_strux", "without_strux")
@@ -32,9 +31,6 @@ def sandbox_files(arm: str) -> dict[str, str]:
 
 
 def setup_script() -> str:
-    """Run in the sandbox before the agent starts; the same for both arms."""
-    return f"mkdir -p {BIN} && chmod +x {BIN}/* 2>/dev/null || true"
-
-
-def is_executable(path: Path) -> bool:
-    return bool(path.stat().st_mode & stat.S_IXUSR)
+    """Run in the sandbox before the agent starts; the same for both arms. It does not ignore
+    failures, so a harness fault stops the sample instead of looking like strux failing."""
+    return f"mkdir -p {BIN} && find {BIN} -type f -exec chmod +x {{}} +"

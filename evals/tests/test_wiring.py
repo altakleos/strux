@@ -11,8 +11,8 @@ from inspect_ai import eval as inspect_eval
 from inspect_ai.model import ModelOutput, get_model
 
 from strux_evals.arms import ARMS, sandbox_files
-from strux_evals.dataset import expected, load_specs, samples
-from strux_evals.task import strux_stub
+from strux_evals.dataset import UNAVAILABLE, expected, load_specs, samples
+from strux_evals.task import normalize, strux_stub
 
 REPO = Path(__file__).resolve().parents[2]
 
@@ -33,7 +33,7 @@ def scripted(answer: str):
         "mockllm/model",
         custom_outputs=[
             ModelOutput.for_tool_call("mockllm/model", "bash", {"command": "bin/strux version --json"}),
-            ModelOutput.for_tool_call("mockllm/model", "submit", {"answer": answer}),
+            ModelOutput.for_tool_call("mockllm/model", "submit", {"answer": answer}, content=""),
         ],
     )
 
@@ -45,14 +45,24 @@ def run(arm: str, answer: str, log_dir: Path):
 
 
 def test_tasks_load():
-    assert [s.id for s in load_specs()] == ["version"]
+    specs = load_specs()
+    ids = [s.id for s in specs]
+    assert ids and len(ids) == len(set(ids))
+    assert all(UNAVAILABLE in s.prompt for s in specs), "a prompt must say what to submit without strux"
 
 
 def test_arms_differ_only_in_strux():
     with_, without = (sandbox_files(a) for a in ARMS)
     assert "bin/strux" in with_ and "bin/strux" not in without
     a, b = samples("with_strux"), samples("without_strux")
-    assert [(s.input, s.target, s.setup) for s in a] == [(s.input, s.target, s.setup) for s in b]
+    assert [(s.input, s.setup) for s in a] == [(s.input, s.setup) for s in b]
+    assert [s.target for s in a] != [s.target for s in b]
+
+
+def test_expected_answers_per_arm():
+    spec = load_specs()[0]
+    assert expected(spec, "without_strux") == UNAVAILABLE
+    assert expected(spec, "with_strux") not in ("", UNAVAILABLE)
 
 
 def test_unknown_arm_is_rejected():
@@ -65,29 +75,60 @@ def bash_result(log):
     return message
 
 
+def accuracy(log) -> float:
+    return log.results.scores[0].metrics["accuracy"].value
+
+
 def test_with_strux_scores_the_real_version(tmp_path):
-    version = expected(load_specs()[0])
+    version = expected(load_specs()[0], "with_strux")
     log = run("with_strux", version, tmp_path)
     result = bash_result(log)
     assert result.error is None and json.loads(result.text)["version"] == version
-    assert log.results.scores[0].metrics["accuracy"].value == 1.0
+    assert accuracy(log) == 1.0
 
 
-def test_wrong_answer_scores_zero(tmp_path):
-    log = run("with_strux", "unavailable", tmp_path)
-    assert log.results.scores[0].metrics["accuracy"].value == 0.0
-
-
-def test_without_strux_the_command_fails_in_the_sandbox(tmp_path):
-    log = run("without_strux", "unavailable", tmp_path)
+def test_without_strux_unavailable_is_correct(tmp_path):
+    log = run("without_strux", UNAVAILABLE, tmp_path)
     result = bash_result(log)
-    assert "bin/strux: No such file or directory" in result.text
-    assert log.results.scores[0].metrics["accuracy"].value == 0.0
+    assert "bin/strux" in result.text and "version" not in result.text
+    assert accuracy(log) == 1.0
 
 
-@pytest.mark.parametrize("agent", ["offline", "claude_code", "codex_cli"])
-def test_each_agent_builds(agent):
-    assert strux_stub(arm="with_strux", agent=agent).solver is not None
+def test_inventing_a_version_without_strux_is_wrong(tmp_path):
+    assert accuracy(run("without_strux", "v9.9.9", tmp_path)) == 0.0
+
+
+def test_saying_unavailable_with_strux_is_wrong(tmp_path):
+    assert accuracy(run("with_strux", UNAVAILABLE, tmp_path)) == 0.0
+
+
+@pytest.mark.parametrize(
+    ("answer", "ok"),
+    [
+        ("v0.0.1", True),
+        (" `v0.0.1`\n", True),
+        ('"v0.0.1"', True),
+        ("v0.0.12", False),
+        ("maybe v0.0.1?", False),
+        ("", False),
+    ],
+)
+def test_scorer_is_an_exact_match(answer, ok):
+    assert (normalize(answer) == "v0.0.1") is ok
+
+
+@pytest.mark.parametrize("agent", ["claude_code", "codex_cli"])
+def test_live_agents_need_docker_and_a_pinned_version(agent):
+    with pytest.raises(ValueError, match="Docker"):
+        strux_stub(agent=agent, agent_version="1.2.3")
+    for floating in ("", "auto", "latest"):
+        with pytest.raises(ValueError, match="pin"):
+            strux_stub(agent=agent, agent_version=floating, sandbox="docker")
+
+
+@pytest.mark.parametrize("agent", ["claude_code", "codex_cli"])
+def test_live_agents_build_when_pinned_in_docker(agent):
+    assert strux_stub(arm="with_strux", agent=agent, agent_version="1.2.3", sandbox="docker").solver is not None
 
 
 def test_unknown_agent_is_rejected():

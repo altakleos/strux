@@ -2,7 +2,7 @@
 
 Evals that compare an agent on the same tasks with strux and without it, to show that strux brings value, and that run the with-strux arm again after each change to catch regressions. They use [Inspect AI](https://inspect.aisi.org.uk) and, for the real agent, [`inspect_swe`](https://pypi.org/project/inspect-swe/).
 
-This is a spike: one task, `tasks/version.yaml`, that exercises the pieces. It proves the wiring, not that strux helps.
+This is a spike: one task, `tasks/version.yaml`, that exercises the pieces. In the arm with strux the right answer is its version; in the arm without it, "unavailable". An honest agent passes both, so the comparison only shows a difference when an agent guesses or fails to use strux. It proves the wiring, not that strux helps.
 
 ## How it is built
 
@@ -23,9 +23,9 @@ go build -o /tmp/strux ./cmd/strux
 cd evals
 export STRUX_BIN=/tmp/strux ANTHROPIC_API_KEY=...
 for arm in with_strux without_strux; do
-  uv run inspect eval strux_evals/task.py@strux_stub -T arm=$arm -T agent=claude_code \
+  uv run inspect eval strux_evals/task.py@strux_stub -T arm=$arm -T agent=claude_code -T agent_version=<pinned version> -T sandbox=docker \
     --model anthropic/<model> --epochs 5 --log-dir logs/$arm
 done
 ```
 
-`-T agent=codex_cli` runs OpenAI's Codex CLI instead, with `OPENAI_API_KEY` and `--model openai/<model>`; it is as untested as the Claude Code path. `inspect_swe` runs the agent in the task's sandbox, which this spike sets to `local`; a run that isolates the agent needs a Docker sandbox with an image holding a pinned agent, which is the next step. Report the pass rate of each arm over its epochs, not one run.
+`-T agent=codex_cli` runs OpenAI's Codex CLI instead, with `OPENAI_API_KEY` and `--model openai/<model>`; it is as untested as the Claude Code path. A live agent must run with `-T sandbox=docker`, so that the without-strux arm cannot reach a strux installed on your machine, and with a pinned `agent_version`; the task refuses both otherwise. `token_limit` (default 500,000 per sample) caps cost. Docker uses Inspect's default image, and this path has not been run. Report the pass rate of each arm over its epochs, not one run.
