@@ -11,7 +11,7 @@ import (
 // gives the names of those that fail and of those that are unknown, in the form a result names them.
 func (r *run) useConditions(f *fact, use string) (outcome, []string, []string) {
 	node := mapOf(mapOf(r.definition(f)["uses"])[use])
-	requires := mapOf(node["requires"])
+	requires := requirements(f.kind, r.definition(f), node)
 	if len(requires) == 0 {
 		return holds, nil, nil
 	}
@@ -297,4 +297,23 @@ func (r *run) lists() statusLists {
 	}
 	sort.Slice(s.Recognized, func(i, j int) bool { return s.Recognized[i] < s.Recognized[j] })
 	return s
+}
+
+// requirements are the conditions a use requires: those it writes, and one for each check that it
+// requires satisfied, named by the check, which the check decides.
+func requirements(kind string, def, node map[string]any) map[string]any {
+	out := map[string]any{}
+	for name, cond := range mapOf(node["requires"]) {
+		out[name] = cond
+	}
+	checks := mapOf(def["checks"])
+	for _, item := range list(node["requires_satisfied"]) {
+		name := str(item)
+		for _, family := range []string{"formal", "semantic"} {
+			if mapOf(checks[family])[name] != nil {
+				out[name] = map[string]any{"check": kind + ".checks." + family + "." + name}
+			}
+		}
+	}
+	return out
 }

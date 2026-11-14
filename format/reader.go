@@ -81,6 +81,77 @@ type UseInputs struct {
 // reading the log through r, and returns the result of each by name. A condition that a check,
 // another use or an interpreter capability decides is left to the caller.
 func (u *Universe) EvaluateUse(pkg, def, use string, in UseInputs, r Reader) (map[string]Result, error) {
+	e, err := u.useEvaluation(pkg, def, use, in, r)
+	if err != nil {
+		return nil, err
+	}
+	conditions := mapping(e.node["requires"])
+	asts := map[string]*cel.Ast{}
+	before := len(u.errs)
+	for _, name := range sortedKeys(conditions) {
+		if expr, ok := mapping(conditions[name])["expr"]; ok {
+			asts[name] = u.compile(e.c, expr, e.where+".requires."+name, types.BoolType)
+		}
+	}
+	if err := u.problemsSince(before); err != nil {
+		return nil, err
+	}
+	results := map[string]Result{}
+	for name, a := range asts {
+		prg, err := u.program(e.c, a)
+		if err != nil {
+			return nil, err
+		}
+		results[name] = result(prg.Eval(e.act))
+	}
+	return results, nil
+}
+
+// EvaluateUseList evaluates an expression of a use that is a list of strings, such as its
+// beneficiaries, named by its key, in the use's context. It returns the list, or the result that
+// says why there is none: a list that holds a possible member, or one that is otherwise unknown.
+func (u *Universe) EvaluateUseList(pkg, def, use, key string, in UseInputs, r Reader) ([]string, Result, error) {
+	e, err := u.useEvaluation(pkg, def, use, in, r)
+	if err != nil {
+		return nil, Result{}, err
+	}
+	src, ok := e.node[key]
+	if !ok {
+		return nil, Result{}, fmt.Errorf("%s/%s.uses.%s has no %s", pkg, def, use, key)
+	}
+	before := len(u.errs)
+	a := u.compile(e.c, src, e.where+"."+key, types.NewListType(types.StringType))
+	if err := u.problemsSince(before); err != nil {
+		return nil, Result{}, err
+	}
+	prg, err := u.program(e.c, a)
+	if err != nil {
+		return nil, Result{}, err
+	}
+	out, _, err := prg.Eval(e.act)
+	if err != nil {
+		return nil, Result{"unknown", err.Error()}, nil
+	}
+	if types.IsUnknownOrError(out) {
+		return nil, result(out, nil, nil), nil
+	}
+	native, err := out.ConvertToNative(reflect.TypeOf([]string{}))
+	if err != nil {
+		return nil, Result{"unknown", "the list is not yet decided: " + err.Error()}, nil
+	}
+	return native.([]string), Result{Value: "true"}, nil
+}
+
+// useEvaluation is what evaluating a use's expressions needs: its node, its context with the
+// reader's functions bound and its lets compiled, and the activation that binds its variables.
+type useEvaluation struct {
+	node  map[string]any
+	c     *context
+	act   *lazy
+	where string
+}
+
+func (u *Universe) useEvaluation(pkg, def, use string, in UseInputs, r Reader) (*useEvaluation, error) {
 	p := u.Packages[pkg]
 	if p == nil || p.Defs[def] == nil {
 		return nil, fmt.Errorf("no definition %s/%s", pkg, def)
@@ -103,17 +174,8 @@ func (u *Universe) EvaluateUse(pkg, def, use string, in UseInputs, r Reader) (ma
 	where := def + ".uses." + use
 	before := len(u.errs)
 	c, letAsts := u.lets(c, node["let"], where)
-	conditions := mapping(node["requires"])
-	asts := map[string]*cel.Ast{}
-	for _, name := range sortedKeys(conditions) {
-		if expr, ok := mapping(conditions[name])["expr"]; ok {
-			asts[name] = u.compile(c, expr, where+".requires."+name, types.BoolType)
-		}
-	}
-	if errs := u.errs[before:]; len(errs) > 0 {
-		problems := strings.Join(errs, "; ")
-		u.errs = u.errs[:before]
-		return nil, errors.New(problems)
+	if err := u.problemsSince(before); err != nil {
+		return nil, err
 	}
 	act := &lazy{programs: map[string]cel.Program{}, memo: map[string]ref.Val{}, vars: map[string]any{}}
 	if d.HasStructure() && in.Self != nil {
@@ -139,15 +201,17 @@ func (u *Universe) EvaluateUse(pkg, def, use string, in UseInputs, r Reader) (ma
 		}
 		act.programs[l.name] = prg
 	}
-	results := map[string]Result{}
-	for name, a := range asts {
-		prg, err := u.program(c, a)
-		if err != nil {
-			return nil, err
-		}
-		results[name] = result(prg.Eval(act))
+	return &useEvaluation{node: node, c: c, act: act, where: where}, nil
+}
+
+// problemsSince takes back the problems reported since a point, as one error.
+func (u *Universe) problemsSince(before int) error {
+	if len(u.errs) <= before {
+		return nil
 	}
-	return results, nil
+	problems := strings.Join(u.errs[before:], "; ")
+	u.errs = u.errs[:before]
+	return errors.New(problems)
 }
 
 // readerFunctions binds the functions that read references and the history to r. Each keeps the
