@@ -7,9 +7,9 @@ from pathlib import Path
 import pytest
 
 from strux_evals.compare import Trial, main, read_trials, render, summarize, wilson
-from strux_evals.dataset import UNAVAILABLE, expected, load_specs
+from strux_evals.dataset import UNAVAILABLE, expected
 
-from .test_wiring import run
+from .test_wiring import run, version_spec
 
 
 def make_logs(root: Path, arm: str, answers: list[str]) -> Path:
@@ -28,7 +28,7 @@ def test_wilson_matches_known_values():
 
 
 def test_two_arms_side_by_side(tmp_path):
-    version = expected(load_specs()[0], "with_strux")
+    version = expected(version_spec(), "with_strux")
     with_ = make_logs(tmp_path, "with_strux", [version, version, "wrong"])
     without = make_logs(tmp_path, "without_strux", [UNAVAILABLE, "v9.9.9"])
     (group,) = summarize(read_trials([with_, without]))
@@ -42,7 +42,7 @@ def test_two_arms_side_by_side(tmp_path):
 
 
 def test_a_missing_arm_is_reported_not_compared(tmp_path):
-    version = expected(load_specs()[0], "with_strux")
+    version = expected(version_spec(), "with_strux")
     (group,) = summarize(read_trials([make_logs(tmp_path, "with_strux", [version])]))
     assert group.difference is None
     assert re.search(r"without_strux\s+\(no runs\)", render([group]))
@@ -66,7 +66,7 @@ def test_different_agents_are_different_groups():
 
 
 def test_command_line(tmp_path, capsys):
-    version = expected(load_specs()[0], "with_strux")
+    version = expected(version_spec(), "with_strux")
     with_ = make_logs(tmp_path, "with_strux", [version])
     without = make_logs(tmp_path, "without_strux", [UNAVAILABLE])
     assert main([str(with_), str(without), "--json"]) == 0

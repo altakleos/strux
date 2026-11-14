@@ -2,7 +2,7 @@
 agent's sandbox. The model, the tasks, the prompt and the permissions are the same."""
 
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 ARMS = ("with_strux", "without_strux")
 
@@ -42,6 +42,12 @@ def sandbox_files(arm: str, bin: str = LOCAL_BIN) -> dict[str, str]:
     if arm == "with_strux":
         return {f"{bin}/strux": str(strux_binary())}
     return {f"{bin}/.keep": ""}
+
+
+def work_dir(bin: str = LOCAL_BIN) -> str:
+    """The agent's working directory, which holds the programs directory: "." in the local
+    sandbox, and the absolute directory in Docker."""
+    return str(PurePosixPath(bin).parent)
 
 
 def setup_script(bin: str = LOCAL_BIN) -> str:

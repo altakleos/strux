@@ -14,9 +14,10 @@ from strux_evals.baseline import (
     write,
 )
 from strux_evals.compare import Trial
-from strux_evals.dataset import expected, load_specs
+from strux_evals.dataset import expected
 
 from .test_compare import make_logs
+from .test_wiring import version_spec
 
 GROUP = ("t", "claude_code", "1.2.3", "m")
 
@@ -88,7 +89,7 @@ def test_unreadable_baselines_are_errors(tmp_path, text):
 
 
 def test_command_line_end_to_end(tmp_path: Path, capsys):
-    version = expected(load_specs()[0], "with_strux")
+    version = expected(version_spec(), "with_strux")
     good = make_logs(tmp_path / "good", "with_strux", [version] * 10)
     bad = make_logs(tmp_path / "bad", "with_strux", ["wrong"] * 10)
     baseline = tmp_path / "baselines" / "main.json"

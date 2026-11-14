@@ -6,7 +6,7 @@ This is a spike: one task, `tasks/version.yaml`, that exercises the pieces. In t
 
 ## How it is built
 
-- `tasks/*.yaml` are tasks as data, so they do not depend on the harness. A task has a prompt and an expected answer, taken from strux's own output.
+- `tasks/*.yaml` are tasks as data, so they do not depend on the harness. A task has a prompt and an expected answer, taken from strux's own output: `expect.run` is the command line, and `expect.field` the field of its JSON result, a dotted path such as `packages.0.digest`. A task may also give `files`, by name and contents, which lie in the agent's working directory in both arms; the prompt names that directory as `{work}`, and the expected answer comes from strux run beside the same files. `-T tasks=a,b` runs only the tasks named.
 - `strux_evals/arms.py` defines the two arms. They differ in one thing: `bin/strux` exists in the sandbox of `with_strux` and not of `without_strux`. The prompt, model, tools and limits are the same.
 - `strux_evals/task.py` is the Inspect task. The scorer is deterministic: no model judges the answer.
 
