@@ -1,6 +1,7 @@
 package verify
 
 import (
+	"encoding/json"
 	"io/fs"
 	"os"
 	"path"
@@ -410,6 +411,49 @@ func TestARelianceIsDecidedAsTheVectorsState(t *testing.T) {
 			}
 			if !sameList(orEmpty(have), orEmpty(stated)) {
 				t.Errorf("%s: reliance.conditions\n  got  %q\n  want %q", where, have, stated)
+			}
+		}
+	}
+}
+
+// Verify returns, for every case of every vector, each field of the result that the case states,
+// with the stated value, compared as JSON.
+func TestVerifyReturnsWhatEveryCaseStates(t *testing.T) {
+	for name, l := range vectors(t) {
+		byIdentity := anchorBytes(t, l)
+		for _, c := range cases(t, name) {
+			where := name + "/" + c.name
+			read := c.inputs["log"].(map[string]any)
+			in := Inputs{TrustRoot: c.inputs["trust_root_configuration"].(map[string]any)["initial"], Log: read["log"].(string), Size: int(read["size"].(int64))}
+			in.Ended, _ = read["ended"].(bool)
+			for _, id := range c.anchors {
+				in.Anchors = append(in.Anchors, byIdentity[id])
+			}
+			if rel, ok := c.inputs["reliance"].(map[string]any); ok {
+				recorded := rel["subject"].(map[string]any)["recorded"].(map[string]any)
+				in.Reliance = &Reliance{Use: rel["use"].(string), Subject: format.Reference{Fact: recorded["fact"].(string), Digest: recorded["digest"].(string)}}
+				if p, ok := rel["position"].(int64); ok {
+					position := int(p)
+					in.Reliance.Position = &position
+				}
+			}
+			got, err := Verify(l, in)
+			if err != nil {
+				t.Fatalf("%s: %v", where, err)
+			}
+			data, err := json.Marshal(got)
+			if err != nil {
+				t.Fatal(err)
+			}
+			parsed, err := format.ParseJSON(data)
+			if err != nil {
+				t.Fatalf("%s: the result is not JSON the format reads: %v", where, err)
+			}
+			result := parsed.(map[string]any)
+			for _, field := range sortedKeys(c.want) {
+				if have, stated := format.Canonical(result[field]), format.Canonical(c.want[field]); string(have) != string(stated) {
+					t.Errorf("%s: %s\n  got  %s\n  want %s", where, field, have, stated)
+				}
 			}
 		}
 	}
