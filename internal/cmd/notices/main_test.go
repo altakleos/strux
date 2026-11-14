@@ -106,7 +106,9 @@ func TestSourcesOfStrux(t *testing.T) {
 		}
 	}
 	// mousetrap is part of strux on Windows only.
-	want := []string{"Go standard library", "github.com/inconshreveable/mousetrap", "github.com/spf13/cobra", "github.com/spf13/pflag", "go.yaml.in/yaml/v3"}
+	want := []string{"Go standard library", "cel.dev/cel-go", "cel.dev/expr", "filippo.io/edwards25519", "github.com/antlr4-go/antlr/v4",
+		"github.com/inconshreveable/mousetrap", "github.com/spf13/cobra", "github.com/spf13/pflag", "go.yaml.in/yaml/v3", "golang.org/x/exp",
+		"golang.org/x/text", "google.golang.org/genproto/googleapis/api", "google.golang.org/genproto/googleapis/rpc", "google.golang.org/protobuf"}
 	if strings.Join(names, " ") != strings.Join(want, " ") {
 		t.Errorf("sources = %q, want %q", names, want)
 	}

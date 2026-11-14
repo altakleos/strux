@@ -1,0 +1,98 @@
+# def check reads definitions files and reports each package, by name, revision and the digest of
+# its canonical form, with every problem the format finds. It succeeds only when there is none.
+exec strux def check notes.yaml
+cmp stdout notes.out
+! stderr .
+
+# The digest is of the canonical form, so how the file is laid out does not change it.
+exec strux def check notes-reflowed.yaml
+stdout 'digest: "sha256:108ee0b69f1f09702649c42d06453d873ce8ef00dee031bc4c4add4cc48eaf9e"'
+
+# A check that reads a field its definition lacks does not type-check. The files are checked
+# together, and the command fails once it has written what it found.
+! exec strux def check notes.yaml broken.yaml
+cmp stdout broken.out
+stderr '^strux: the definitions files have 1 problem$'
+
+# --json carries the same fields.
+! exec strux def check --json broken.yaml
+stdout '^\{"packages":\[\{"package":"broken","revision":1,"digest":"sha256:[0-9a-f]{64}","file":"broken.yaml"\}\],"problems":\["broken.yaml: note.checks.formal.has-title.expr: 1:9: undefined field ''title''"\]\}$'
+
+# A file that cannot be read is a problem too.
+! exec strux def check missing.yaml
+stdout '^  - "missing.yaml: cannot be read: '
+stderr '^strux: the definitions files have 1 problem$'
+
+# def check needs a file.
+! exec strux def check
+! stdout .
+stderr '^strux: strux def check takes one file or more \(see "strux help def check"\)$'
+
+-- notes.yaml --
+format: 1
+package: notes
+revision: 1
+definitions:
+  note:
+    purpose: A short note that someone wrote.
+    structure:
+      text: { type: text, required: true, meaning: "What the note says." }
+    checks:
+      formal:
+        has-text:
+          rule: "The note says something."
+          expr: "size(self.text) > 0"
+          fix: "Write what the note says."
+    uses:
+      recognize: {}
+-- notes-reflowed.yaml --
+# The same definitions, written another way.
+format: 1
+package: notes
+revision: 1
+definitions:
+  note:
+    purpose: A short note that someone wrote.
+    uses: { recognize: {} }
+    checks:
+      formal:
+        has-text: { rule: "The note says something.", expr: "size(self.text) > 0", fix: "Write what the note says." }
+    structure:
+      text:
+        type: text
+        required: true
+        meaning: What the note says.
+-- broken.yaml --
+format: 1
+package: broken
+revision: 1
+definitions:
+  note:
+    purpose: A note whose check reads a field it does not have.
+    structure:
+      text: { type: text, required: true, meaning: "What the note says." }
+    checks:
+      formal:
+        has-title:
+          rule: "The note has a title."
+          expr: "size(self.title) > 0"
+          fix: "Give the note a title."
+-- notes.out --
+packages:
+  - package: notes
+    revision: 1
+    digest: "sha256:108ee0b69f1f09702649c42d06453d873ce8ef00dee031bc4c4add4cc48eaf9e"
+    file: notes.yaml
+problems: []
+-- broken.out --
+packages:
+  - package: notes
+    revision: 1
+    digest: "sha256:108ee0b69f1f09702649c42d06453d873ce8ef00dee031bc4c4add4cc48eaf9e"
+    file: notes.yaml
+  - package: broken
+    revision: 1
+    digest: "sha256:fddcdac543cdeae6c18d8359d80bcb2c2710806ad81e13a9f0a2cc9f7120125c"
+    file: broken.yaml
+problems:
+  - "broken.yaml: note.checks.formal.has-title.expr: 1:9: undefined field 'title'"

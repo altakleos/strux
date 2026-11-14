@@ -29,31 +29,38 @@ func TestExitCodes(t *testing.T) {
 		args   []string
 		code   int
 		stderr string
+		// result is set where a command fails once it has written its result, as a check that
+		// found problems does; every other failure writes nothing to stdout.
+		result bool
 	}{
-		{nil, 0, ""},
-		{[]string{"help"}, 0, ""},
-		{[]string{"--help"}, 0, ""},
-		{[]string{"help", "version"}, 0, ""},
-		{[]string{"version", "-h"}, 0, ""},
-		{[]string{"help", "-h"}, 0, ""},
-		{[]string{"version"}, 0, ""},
-		{[]string{"--version"}, 0, ""},
-		{[]string{"version", "--json"}, 0, ""},
-		{[]string{"verison"}, 2, `strux: unknown command "verison"; did you mean "version"? (see "strux help")`}, //nolint:misspell // a typo strux corrects
-		{[]string{"frobnicate"}, 2, `strux: unknown command "frobnicate" (see "strux help")`},
-		{[]string{"frobnicate", "--help"}, 2, `strux: unknown command "frobnicate" (see "strux help")`},
-		{[]string{"-h", "frobnicate"}, 2, `strux: unknown command "frobnicate" (see "strux help")`},
-		{[]string{""}, 2, `strux: unknown command "" (see "strux help")`},
-		{[]string{"--", "version"}, 2, `strux: command "version" must come before "--" (see "strux help")`},
-		{[]string{"help", "frobnicate"}, 2, `strux: unknown command "frobnicate" (see "strux help")`},
-		{[]string{"help", "version", "extra"}, 2, `strux: unknown command "extra" for "strux version" (see "strux help version")`},
-		{[]string{"version", "extra"}, 2, `strux: strux version takes no arguments (see "strux help version")`},
-		{[]string{"version", "extra", "--help"}, 2, `strux: strux version takes no arguments (see "strux help version")`},
-		{[]string{"version", "--frob"}, 2, `strux: unknown flag: --frob (see "strux help version")`},
-		{[]string{"--version", "extra"}, 2, `strux: unknown command "extra" (see "strux help")`},
-		{[]string{"__complete", "ver"}, 2, `strux: unknown command "__complete" (see "strux help")`},
-		{[]string{"__complete"}, 2, `strux: unknown command "__complete" (see "strux help")`},
-		{[]string{"--json", "__completeNoDesc", "ver"}, 2, `strux: unknown command "__completeNoDesc" (see "strux help")`},
+		{nil, 0, "", false},
+		{[]string{"help"}, 0, "", false},
+		{[]string{"--help"}, 0, "", false},
+		{[]string{"help", "version"}, 0, "", false},
+		{[]string{"version", "-h"}, 0, "", false},
+		{[]string{"help", "-h"}, 0, "", false},
+		{[]string{"version"}, 0, "", false},
+		{[]string{"--version"}, 0, "", false},
+		{[]string{"version", "--json"}, 0, "", false},
+		{[]string{"verison"}, 2, `strux: unknown command "verison"; did you mean "version"? (see "strux help")`, false}, //nolint:misspell // a typo strux corrects
+		{[]string{"frobnicate"}, 2, `strux: unknown command "frobnicate" (see "strux help")`, false},
+		{[]string{"frobnicate", "--help"}, 2, `strux: unknown command "frobnicate" (see "strux help")`, false},
+		{[]string{"-h", "frobnicate"}, 2, `strux: unknown command "frobnicate" (see "strux help")`, false},
+		{[]string{""}, 2, `strux: unknown command "" (see "strux help")`, false},
+		{[]string{"--", "version"}, 2, `strux: command "version" must come before "--" (see "strux help")`, false},
+		{[]string{"help", "frobnicate"}, 2, `strux: unknown command "frobnicate" (see "strux help")`, false},
+		{[]string{"help", "version", "extra"}, 2, `strux: unknown command "extra" for "strux version" (see "strux help version")`, false},
+		{[]string{"version", "extra"}, 2, `strux: strux version takes no arguments (see "strux help version")`, false},
+		{[]string{"version", "extra", "--help"}, 2, `strux: strux version takes no arguments (see "strux help version")`, false},
+		{[]string{"version", "--frob"}, 2, `strux: unknown flag: --frob (see "strux help version")`, false},
+		{[]string{"--version", "extra"}, 2, `strux: unknown command "extra" (see "strux help")`, false},
+		{[]string{"__complete", "ver"}, 2, `strux: unknown command "__complete" (see "strux help")`, false},
+		{[]string{"__complete"}, 2, `strux: unknown command "__complete" (see "strux help")`, false},
+		{[]string{"--json", "__completeNoDesc", "ver"}, 2, `strux: unknown command "__completeNoDesc" (see "strux help")`, false},
+		{[]string{"def"}, 0, "", false},
+		{[]string{"def", "check"}, 2, `strux: strux def check takes one file or more (see "strux help def check")`, false},
+		{[]string{"def", "frob"}, 2, `strux: unknown command "frob" for "strux def" (see "strux help def")`, false},
+		{[]string{"def", "check", "no-such-file.yaml"}, 1, `strux: the definitions files have 1 problem`, true},
 	} {
 		code, stdout, stderr := run(tc.args...)
 		if code != tc.code {
@@ -62,7 +69,7 @@ func TestExitCodes(t *testing.T) {
 		if got := strings.TrimSuffix(stderr, "\n"); got != tc.stderr {
 			t.Errorf("strux %q: stderr %q, want %q", tc.args, got, tc.stderr)
 		}
-		if (code == 0) != (stdout != "") {
+		if (code == 0 || tc.result) != (stdout != "") {
 			t.Errorf("strux %q: exit code %d with stdout %q", tc.args, code, stdout)
 		}
 	}
