@@ -1,0 +1,50 @@
+format: 1
+package: art-neutral
+revision: 1
+
+definitions:
+  artifact-revision:
+    purpose: >
+      Identifies one exact revision of a named artifact so that an examination, statement or
+      correction is bound to exactly the bytes it concerns. The name is a hierarchical identifier,
+      not a path in a file system, and the source of the revision is whatever system holds it.
+    types:
+      observation:
+        meaning: "What the capturing component observed when it retained the artifact, in no source system's words."
+        fields:
+          plain_document: { type: boolean, required: true, meaning: "The artifact is a plain, directly readable document, not a link, pointer or composite." }
+          inside_scope: { type: boolean, required: true }
+          readable: { type: boolean, required: true }
+          secret: { type: boolean, required: true }
+          media: { type: string, required: true, meaning: "The media kind, such as text/markdown." }
+          unpinned: { type: list(text), required: true, meaning: "Includes whose sources are not pinned with the artifact." }
+    structure:
+      name: { type: string, required: true, meaning: "Hierarchical identifier, one or more segments, NFC." }
+      source: { type: string, required: true, meaning: "Which source system holds the revision." }
+      revision: { type: string, meaning: "The source system's revision id, where one exists." }
+      sha256: { type: digest, required: true }
+      observed: { type: observation, required: true }
+    checks:
+      formal:
+        capturable:
+          rule: "A plain document inside scope, readable and not secret, of a media kind the binding accepts, with no unpinned includes."
+          expr: "self.observed.plain_document && self.observed.inside_scope && self.observed.readable && !self.observed.secret && size(self.observed.unpinned) == 0"
+          fix: "Capture a plain, self-contained, permitted document."
+        retained-bytes:
+          rule: "The bytes are retained under the digest."
+          expr: "retained(self.sha256)"
+          fix: "Capture the artifact again."
+    operations:
+      capture:
+        abstract: true
+        at: evaluation
+        inputs:
+          name: { type: string, required: true }
+          operation_id: { type: string, required: true, meaning: "A caller-supplied operation identity." }
+        returns: "The retained revision and what was observed."
+        refuses: "An artifact that is not capturable, with the reason and any fallback."
+        reports: "What was retained. Nothing is copied silently."
+    uses:
+      bind:
+        beneficiaries: "[]"
+        requires_satisfied: [capturable, retained-bytes]
