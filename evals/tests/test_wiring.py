@@ -211,3 +211,28 @@ def test_strux_runs_beside_the_task_files(tmp_path, monkeypatch):
     monkeypatch.setenv("STRUX_BIN", str(binary))
     spec = Spec("t", "unavailable", ("read",), "text", (("a.txt", "hello"),))
     assert expected(spec, "with_strux") == "hello"
+
+
+def test_task_dirs_are_copied_into_the_working_directory(tmp_path, monkeypatch):
+    (tmp_path / "t.yaml").write_text(
+        "id: t\nprompt: Read {work}/copy, or say unavailable.\ndirs:\n  copy: evals/tasks\n"
+        "expect:\n  run: [read]\n  field: text\n"
+    )
+    (spec,) = load_specs(tmp_path)
+    assert spec.dirs == (("copy", "evals/tasks"),)
+    files = task_files(spec, bin="/work/bin")
+    assert "/work/copy/version.yaml" in files and all(v.startswith("data:") for v in files.values())
+    binary = tmp_path / "strux"
+    binary.write_text('#!/bin/sh\nprintf \'{"text":"%s"}\' "$(head -c 5 copy/version.yaml)"\n')
+    binary.chmod(0o755)
+    monkeypatch.setenv("STRUX_BIN", str(binary))
+    assert expected(spec, "with_strux") == "# The"
+
+
+@pytest.mark.parametrize("path", ["../outside", "/abs", "evals/no-such-dir"])
+def test_a_task_dir_is_a_directory_of_the_repository(tmp_path, path):
+    (tmp_path / "t.yaml").write_text(
+        f"id: t\nprompt: unavailable\ndirs:\n  d: {path!r}\nexpect:\n  run: [x]\n  field: x\n"
+    )
+    with pytest.raises(ValueError):
+        load_specs(tmp_path)

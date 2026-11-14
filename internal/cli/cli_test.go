@@ -61,6 +61,10 @@ func TestExitCodes(t *testing.T) {
 		{[]string{"def", "check"}, 2, `strux: strux def check takes one file or more (see "strux help def check")`, false},
 		{[]string{"def", "frob"}, 2, `strux: unknown command "frob" for "strux def" (see "strux help def")`, false},
 		{[]string{"def", "check", "no-such-file.yaml"}, 1, `strux: the definitions files have 1 problem`, true},
+		{[]string{"verify"}, 2, `strux: strux verify takes one log directory (see "strux help verify")`, false},
+		{[]string{"verify", "log"}, 2, `strux: --trust-root names the file of the initial trust root (see "strux help verify")`, false},
+		{[]string{"verify", "log", "--trust-root", "t.json", "--use", "a/b.uses.c"}, 2, `strux: --use and --subject go together (see "strux help verify")`, false},
+		{[]string{"verify", "log", "--trust-root", "t.json", "--position", "3"}, 2, `strux: --position needs --use and --subject (see "strux help verify")`, false},
 	} {
 		code, stdout, stderr := run(tc.args...)
 		if code != tc.code {
