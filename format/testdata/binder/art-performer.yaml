@@ -1,0 +1,23 @@
+format: 1
+package: art-performer
+revision: 1
+depends_on: [art-neutral]
+
+definitions:
+  request:
+    purpose: Binds a request to exact artifact revisions, capturing each first.
+    structure:
+      target: { type: art-neutral/artifact-revision, required: true }
+    operations:
+      bind:
+        at: evaluation
+        use: recognize
+        performs: [art-neutral/artifact-revision.operations.capture]
+        effect: "Captures the target and records the request."
+    uses:
+      recognize:
+        requires:
+          target-bindable:
+            rule: "The target can be bound."
+            of: self.target
+            use: art-neutral/artifact-revision.uses.bind
