@@ -487,6 +487,14 @@ func (pr *provider) FindStructType(name string) (*types.Type, bool) {
 	return pr.Provider.FindStructType(name)
 }
 
+// FindIdent resolves the name of a declared type, as history(D) reads it, to that type.
+func (pr *provider) FindIdent(name string) (ref.Val, bool) {
+	if _, ok := pr.u.decls[name]; ok {
+		return types.NewObjectType(name), true
+	}
+	return pr.Provider.FindIdent(name)
+}
+
 func (pr *provider) FindStructFieldNames(name string) ([]string, bool) {
 	if d, ok := pr.u.decls[name]; ok {
 		return sortedKeys(d.Fields), true
