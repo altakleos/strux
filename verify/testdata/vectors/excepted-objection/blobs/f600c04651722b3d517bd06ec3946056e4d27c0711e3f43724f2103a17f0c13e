@@ -1,0 +1,1 @@
+{"credential":{"public_key":"ed25519:cd5a640d2b8580f051fa7dc71eb349f16bc5c72de753ba7e8e522c47bd83bf33"},"environment":"second-author-machine","may_sign":["sample/note"],"principal":"second-author"}

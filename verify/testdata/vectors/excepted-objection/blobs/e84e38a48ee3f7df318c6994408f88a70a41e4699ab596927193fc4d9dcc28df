@@ -1,0 +1,1 @@
+{"credential":{"public_key":"ed25519:d210e18593394cbb6b915ce1b93f2476b9bfa2cdd311368bd00ba8bbe476aad4"},"environment":"reviewer-machine","may_sign":["kernel/exception"],"principal":"reviewer"}
