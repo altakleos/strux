@@ -1,0 +1,42 @@
+# verify reads a log in the interchange layout with the initial trust root that names it, and
+# reports every entry read by its status, the anchors and the read.
+exec strux verify displaced-revision --trust-root displaced-revision.trust-root.json
+stdout '^recognized:$'
+stdout '^not_recognized:$'
+stdout '^    failed:$'
+stdout '^      - kernel/verification.uses.recognize-fact.requires.order$'
+! stdout '^reliance:'
+! stderr .
+
+# With a use relied on for a revision, it decides the use in its two passes. A use that does not
+# hold fails the command once it has written its result.
+! exec strux verify displaced-revision --trust-root displaced-revision.trust-root.json --use $FOR_ANOTHER_NOTE_USE --subject $FOR_ANOTHER_NOTE_SUBJECT
+stdout '^  status: unsatisfied$'
+stdout '^      second: unsatisfied$'
+stdout '^  set_aside:$'
+stderr '^strux: the use relied on is unsatisfied$'
+
+exec strux verify displaced-revision --trust-root displaced-revision.trust-root.json --use $FOR_THE_AUTHORS_REVISION_USE --subject $FOR_THE_AUTHORS_REVISION_SUBJECT
+stdout '^  status: holds$'
+! stderr .
+
+# --json carries the same fields.
+exec strux verify --json displaced-revision --trust-root displaced-revision.trust-root.json --use $FOR_THE_AUTHORS_REVISION_USE --subject $FOR_THE_AUTHORS_REVISION_SUBJECT
+stdout '"reliance":\{"status":"holds",'
+
+# A read that is behind its anchors decides no use, and says so as a limit. read-behind-40 holds
+# the first 40 records of a log whose anchors witness 61.
+! exec strux verify read-behind-40 --trust-root read-behind.trust-root.json --use $LAGGING_STORE_USE --subject $LAGGING_STORE_SUBJECT
+stdout '^  behind: true$'
+stdout '^  status: indeterminate$'
+stdout '^  - kind: read-behind$'
+stderr '^strux: the use relied on is indeterminate$'
+
+# The command line is checked first.
+! exec strux verify
+! stdout .
+stderr '^strux: strux verify takes one log directory \(see "strux help verify"\)$'
+! exec strux verify displaced-revision --trust-root displaced-revision.trust-root.json --use sample/note.uses.accept
+stderr '^strux: --use and --subject go together \(see "strux help verify"\)$'
+! exec strux verify displaced-revision
+stderr '^strux: --trust-root names the file of the initial trust root \(see "strux help verify"\)$'

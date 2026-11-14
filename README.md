@@ -2,7 +2,7 @@
 
 Strux keeps agent work accountable. Applications describe their concepts as versioned definitions; Strux checks content against them, keeps every result bound to exactly what was examined, and lets only authorized, signed changes count, so anyone relying on a result can verify its basis later.
 
-**Status:** early. `strux` describes itself, reports its version and checks definitions files against definition format 1, and every change goes through the full release pipeline.
+**Status:** early. `strux` describes itself, reports its version, checks definitions files against definition format 1 and verifies a log, and every change goes through the full release pipeline.
 
 ## Install
 
@@ -58,6 +58,8 @@ strux                   # what strux is, and its commands
 strux help <command>    # what a command does, and its flags
 strux version           # this build's version, commit and platform
 strux def check <file>… # check definitions files against definition format 1
+strux verify <log-dir> --trust-root <file> [--use <use> --subject <fact>:<digest>]
+                        # verify a log, and a use relied on for a revision in it
 ```
 
 Every result is YAML, or JSON with `--json`; both carry the same fields. The exit status is 0 on success, 1 on failure and 2 for an invalid command line.

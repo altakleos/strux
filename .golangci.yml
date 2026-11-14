@@ -20,6 +20,10 @@ linters:
       - path: ^internal/cmd/
         linters: [gosec]
         text: G204|G304
+      # Tests read their own test data and write into their own temporary directories.
+      - path: _test\.go$
+        linters: [gosec]
+        text: G304|G703
 
 formatters:
   enable:

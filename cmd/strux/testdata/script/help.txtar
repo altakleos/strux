@@ -26,6 +26,8 @@ commands:
     summary: Work with definitions files.
   - name: help
     summary: Show help for strux or one of its commands.
+  - name: verify
+    summary: Verify a log, and a use relied on for a revision in it.
   - name: version
     summary: Show this build's version.
 flags:
@@ -37,7 +39,7 @@ flags:
   - name: "--version"
     usage: Show this build's version.
 -- help.json --
-{"command":"strux","summary":"Strux keeps agent work accountable.","usage":"strux [command] [flags]","commands":[{"name":"def","summary":"Work with definitions files."},{"name":"help","summary":"Show help for strux or one of its commands."},{"name":"version","summary":"Show this build's version."}],"flags":[{"name":"--help","short":"-h","usage":"Show help."},{"name":"--json","usage":"Write the result as JSON."},{"name":"--version","usage":"Show this build's version."}]}
+{"command":"strux","summary":"Strux keeps agent work accountable.","usage":"strux [command] [flags]","commands":[{"name":"def","summary":"Work with definitions files."},{"name":"help","summary":"Show help for strux or one of its commands."},{"name":"verify","summary":"Verify a log, and a use relied on for a revision in it."},{"name":"version","summary":"Show this build's version."}],"flags":[{"name":"--help","short":"-h","usage":"Show help."},{"name":"--json","usage":"Write the result as JSON."},{"name":"--version","usage":"Show this build's version."}]}
 -- version.yaml --
 command: strux version
 summary: Show this build's version.
