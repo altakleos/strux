@@ -1,0 +1,1 @@
+{"credential":"ed25519:5f972526c09af1aeaf8262ea1995a40344711464c44e47e8cf2c487967f5e9ad","from":30,"reason":"An anchor of position 30 is over a head this log never had, so someone else holds the witness's key."}

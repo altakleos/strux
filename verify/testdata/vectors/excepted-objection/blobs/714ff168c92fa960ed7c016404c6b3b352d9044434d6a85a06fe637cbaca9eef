@@ -1,0 +1,60 @@
+format: 1
+package: sample
+revision: 1
+depends_on: [kernel]
+types:
+  kind: { enum: [first, second] }
+definitions:
+  value:
+    purpose: The instance a conformance vector's expression reads, as self.
+    types:
+      inner:
+        fields:
+          label: { type: string }
+          items: { type: list(integer) }
+    structure:
+      num: { type: integer }
+      zero: { type: integer }
+      big: { type: integer }
+      flag: { type: boolean }
+      name: { type: string }
+      word: { type: string }
+      word_nfd: { type: string }
+      when: { type: time }
+      kind: { type: kind }
+      items: { type: list(integer) }
+      words: { type: list(string) }
+      tags: { type: "map(string, string)" }
+      inner: { type: inner }
+      inner_same: { type: inner }
+      inner_extra: { type: inner }
+      entries: { type: list(inner) }
+      more: { type: list(inner) }
+      combo: { type: combination }
+      findings: { type: "list(ref(kernel/finding))", meaning: "A vector gives each finding by its content, as if its reference were resolved." }
+      held_back: { type: string, enabled: false, meaning: "A field this revision does not interpret." }
+    checks:
+      formal:
+        named: { rule: The value has a name., expr: "self.name != ''", fix: Give the value a name. }
+      semantic:
+        judged: { expectation: The value is sound., evaluator: Any evaluator., combination: { rule: unanimous, cap: 3 } }
+        unjudged: { expectation: The value is useful., evaluator: Any evaluator. }
+  note:
+    purpose: The instance the log of a verification vector records, revises and relies on.
+    structure:
+      text: { type: text, required: true, meaning: "What the note says." }
+      about: { type: ref(note), meaning: "A revision of another note, where this note is about that one." }
+      objection: { type: text, meaning: "An objection the revision records." }
+    uses:
+      recognize:
+        revises: true
+      accept:
+        beneficiaries: "[fact.signer]"
+        let:
+          instance: "has(self.about) ? self.about.fact().instance : fact.instance"
+          revisions: "history(sample.note).filter(r, r.fact().instance == instance)"
+        requires:
+          no-objection:
+            rule: "The current revision of the note it is about, or of its own note where it is about none, records an objection."
+            waivable: true
+            expr: "!revisions.exists(r, has(r.content().objection) && !revisions.exists(s, has(s.fact().expected) && s.fact().expected == r.fact().digest))"

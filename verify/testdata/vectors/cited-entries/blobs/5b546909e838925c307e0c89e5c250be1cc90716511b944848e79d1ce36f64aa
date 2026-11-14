@@ -1,0 +1,1 @@
+{"credential":{"public_key":"ed25519:b6aeb607ea8c334124056c4db87b1db444e71ca627c13286a2673a2c4b09f127"},"environment":"author-machine","may_sign":["lexicon/glossary-entry","kernel/evaluation-request"],"principal":"author"}

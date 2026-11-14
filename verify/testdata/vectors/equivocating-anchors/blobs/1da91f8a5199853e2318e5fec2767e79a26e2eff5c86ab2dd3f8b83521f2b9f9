@@ -1,0 +1,1 @@
+{"credential":"ed25519:e9b32ad183e2ada39845719539e9a02c4be72d9ae7daed23c17ac8eedb13a8e1","from":31,"reason":"A second anchor names the anchor of position 10 as previous, so someone else holds the witness's key."}

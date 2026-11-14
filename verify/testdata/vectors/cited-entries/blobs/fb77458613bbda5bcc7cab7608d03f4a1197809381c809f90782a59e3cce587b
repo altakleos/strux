@@ -1,0 +1,157 @@
+# Definitions of the lexicon package, the foundation's illustration, in definition format 1.
+# It is a fixture that a version lists in its manifest: scenarios run on it as on any
+# application's package, and a log activates it only to run them.
+format: 1
+package: lexicon
+revision: 1
+depends_on: [kernel]
+
+parts:
+  # Who may revise an entry: whoever signed the revision it supersedes, or the owner, where the
+  # revision starts an entry too. The `correct` use always supersedes one and states it alone.
+  signed-by-author:
+    conditions:
+      by-author:
+        rule: "A revision is signed by whoever signed the revision it supersedes, or by the owner."
+        expr: "!has(fact.expected) || fact.signer == predecessor.fact().signer || fact.signer == trust_root.owner"
+
+definitions:
+  glossary-entry:
+    purpose: >
+      States what a term means in a given context, so that readers and agents use the term
+      consistently. It is the foundation's example of a user-defined type: the engine treats it
+      exactly as it treats Strux's own definitions.
+    types:
+      correction:
+        meaning: Why a revision corrects the published revision it supersedes.
+        fields:
+          reason: { type: text, required: true }
+          evidence: { type: list(ref(any)), meaning: "What shows the corrected revision wrong, such as a finding on it." }
+    structure:
+      term: { type: string, required: true }
+      meaning: { type: text, meaning: "What the term means in its context. A draft may lack it." }
+      context: { type: text, meaning: "Where the term has this meaning, such as a field of work." }
+      correction: { type: correction, meaning: "Set on a revision that corrects a published one, and only there." }
+    meaning:
+      summary: "A glossary entry states what a term means in a context. A draft may lack a meaning, publishing needs one, and citing the entry as authoritative also needs a meaning that explains the term in its context. A published revision changes only by a correction that records why."
+      meaning: Explains the term within its context. Restating the term is not an explanation.
+      examples:
+        - { term: archive, context: records management, meaning: "A collection of records preserved for later reference." }
+      counterexamples:
+        - { example: "Term archive, with the meaning 'Archive means archive.'", why: Repeats the term without explaining it. }
+    checks:
+      formal:
+        meaning-present:
+          rule: The entry states a meaning.
+          expr: "has(self.meaning)"
+          fix: State what the term means.
+      semantic:
+        meaning-explains-term:
+          expectation: The meaning explains the term in the stated context; without a context, the result is unknown.
+          evaluator: the evaluator the custody profile names, given the entry and the context it states
+          combination: { rule: unanimous, cap: 3 }
+    operations:
+      draft:
+        at: client
+        use: recognize
+        effect: "Appends a draft: a revision that starts an entry, or revises a draft. A draft need not state a meaning."
+        returns: "A receipt with the draft's identity and position, or a refusal naming the failed condition. A draft is recognized only when a verifier finds it valid where it is relied on."
+      publish:
+        at: client
+        use: publish
+        effect: "Appends a revision that publishes the entry for others to read."
+        returns: "A receipt with the revision's identity and position, or a refusal naming the failed condition, such as a missing meaning."
+      correct:
+        at: client
+        use: correct
+        effect: "Appends a revision that corrects a published one, recording why. The corrected revision stays retrievable, and what relied on it keeps its bindings."
+        returns: "A receipt with the correction's identity and position, or a refusal naming the failed condition, such as a revision that is not the current one."
+    uses:
+      recognize:
+        revises: true
+        includes: [signed-by-author]
+        requires:
+          revises-a-draft:
+            rule: "It starts an entry or revises a draft, never a published revision, and records no correction."
+            expr: "!has(self.correction) && (!has(fact.expected) || predecessor.fact().operation == fact.kind + '.operations.draft')"
+      publish:
+        revises: true
+        includes: [signed-by-author]
+        requires_satisfied: [meaning-present]
+        requires:
+          publishes-a-draft:
+            rule: "It starts an entry or publishes a draft; a published revision changes only by correction."
+            expr: "!has(self.correction) && (!has(fact.expected) || predecessor.fact().operation == fact.kind + '.operations.draft')"
+      correct:
+        revises: true
+        requires_satisfied: [meaning-present]
+        requires:
+          corrects-published:
+            rule: "It supersedes a published or corrected revision, and records why."
+            expr: "has(fact.expected) && predecessor.fact().operation != fact.kind + '.operations.draft' && has(self.correction)"
+          by-author:
+            rule: "A revision is signed by whoever signed the revision it supersedes, or by the owner."
+            expr: "fact.signer == predecessor.fact().signer || fact.signer == trust_root.owner"
+      cite-as-authoritative:
+        beneficiaries: "history(lexicon.glossary_entry).filter(r, r.fact().instance == fact.instance).map(r, r.fact().signer)"
+        requires_satisfied: [meaning-present, meaning-explains-term]
+        requires:
+          published:
+            rule: "The revision was published or corrected, not drafted."
+            expr: "fact.operation != fact.kind + '.operations.draft'"
+          current:
+            rule: "No recognized revision supersedes it."
+            expr: "!history(lexicon.glossary_entry).exists(r, has(r.fact().expected) && r.fact().expected == fact.digest)"
+
+  glossary-page:
+    purpose: >
+      Lists the entries a project publishes together, so that a reader can rely on all of them at
+      once. It is the foundation's example of a definition whose use depends on uses of other
+      revisions, and of a use that can ask for a decision from someone independent of its authors.
+    governing: false
+    structure:
+      title: { type: string, required: true, meaning: "The name of the page, as readers know it." }
+      entries: { type: "list(ref(any))", required: true, max: 100, meaning: "The revisions the page lists, in the order readers see them. Each is meant to be a glossary entry, but the type admits any revision, so a page can list one that has no use to rely on, and adopting the page then reads unknown." }
+      needs_confirmation: { type: boolean, meaning: "Whether adopting the page also needs a confirmation from a principal outside its authors' reach. Absent means false, and then the entries' own results are enough." }
+    meaning:
+      summary: "A glossary page lists entries and is adopted only when every one of them can be cited as authoritative. A page is never revised: a changed list is a new page. A page that needs confirmation is adopted only after someone outside its authors' reach confirms it."
+      counterexamples:
+        - { example: "A page that lists a package revision.", why: "A package revision has no use of the name the page reads, so adopting the page is unknown and nothing relies on it." }
+    operations:
+      compile:
+        at: client
+        use: recognize
+        effect: "Appends a page that lists the given entries."
+        returns: "A receipt with the page's identity and position, or a refusal naming the failed condition."
+    uses:
+      recognize: {}
+      adopt:
+        beneficiaries: "[fact.signer]"
+        independent: "has(self.needs_confirmation) && self.needs_confirmation ? ['lexicon/confirmation'] : []"
+        requires:
+          entries-citable:
+            rule: "The page lists at least one revision, and every revision it lists can be cited as authoritative."
+            expr: "size(self.entries) > 0 && self.entries.all(e, holds(e, 'cite-as-authoritative'))"
+            waivable: true
+
+  confirmation:
+    purpose: >
+      Confirms, for one candidate and one use, that it may be relied on. It adds to what the use
+      already requires without taking its place.
+    governing: true
+    meaning:
+      summary: "A confirmation names one use and one candidate and confirms nothing else."
+      counterexamples:
+        - { example: "A confirmation signed by the page's own author.", why: "The author is a beneficiary of adopting the page, so the confirmation is not recognized." }
+    structure:
+      use: { type: string, required: true, meaning: "The use it confirms, as package/definition.uses.name." }
+      candidate: { type: string, required: true, meaning: "The candidate it confirms, exactly as the use's candidate gives it." }
+      reason: { type: text, required: true, meaning: "Why the signer confirms the candidate." }
+    operations:
+      confirm:
+        at: client
+        use: recognize
+        effect: "Records the confirmation, signed by a principal the owner has authorized to confirm."
+        returns: "A receipt with the confirmation's identity and position, or a refusal naming the authority the signer lacks."
+    uses:
+      recognize: {}

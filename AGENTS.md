@@ -24,6 +24,7 @@ This repository is the Strux implementation, and it is public. Never refer to a 
 
 - `cmd/strux/testdata/script/*.txtar` are transcripts of strux as an agent sees it, run by testscript. Add one for each command and each output an agent relies on.
 - Unit tests sit beside the code they test; the exit codes are tested in `internal/cli`.
+- `verify/testdata/vectors` holds the verification vectors of interpretation revision 1, each a log in the encoding's interchange layout with `cases.json`: the inputs of verify and the result a conforming verifier returns. They are data that this repository does not author: never edit one by hand, and replace the set as a whole when the interpretation revision's vectors change.
 
 ## Evals
 
