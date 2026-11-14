@@ -173,7 +173,7 @@ func TestAnchorsAndTheReadAreAsTheVectorsState(t *testing.T) {
 			for _, id := range c.anchors {
 				anchors = append(anchors, byIdentity[id])
 			}
-			got, _ := r.judgeAnchors(anchors)
+			got := r.judgeAnchors(anchors)
 			if want, ok := c.want["anchors"].(map[string]any); ok {
 				for field, lists := range map[string][2][]string{
 					"recognized":     {orEmpty(got.Recognized), stated(want["recognized"])},
@@ -225,6 +225,113 @@ func TestAnchorsAndTheReadAreAsTheVectorsState(t *testing.T) {
 				}
 				if !sameList(orEmpty(disagreeing), orEmpty(wantDisagreeing)) {
 					t.Errorf("%s: read.disagreeing is %q, and the vector states %q", where, disagreeing, wantDisagreeing)
+				}
+			}
+		}
+	}
+}
+
+// prepare runs the first steps of a case: the entries, the chain acts, the anchors and the read.
+func prepare(t *testing.T, l *Log, c vectorCase, byIdentity map[string][]byte) *run {
+	t.Helper()
+	where := c.vector + "/" + c.name
+	read := c.inputs["log"].(map[string]any)
+	root, err := ReadTrustRoot(c.inputs["trust_root_configuration"].(map[string]any)["initial"])
+	if err != nil {
+		t.Fatalf("%s: %v", where, err)
+	}
+	ended, _ := read["ended"].(bool)
+	r, err := newRun(l, root, int(read["size"].(int64)), ended)
+	if err != nil {
+		t.Fatalf("%s: %v", where, err)
+	}
+	if err := r.judgeChainActs(); err != nil {
+		t.Fatalf("%s: %v", where, err)
+	}
+	var anchors [][]byte
+	for _, id := range c.anchors {
+		anchors = append(anchors, byIdentity[id])
+	}
+	r.judgeAnchors(anchors)
+	return r
+}
+
+func anchorBytes(t *testing.T, l *Log) map[string][]byte {
+	t.Helper()
+	out := map[string][]byte{}
+	for _, b := range l.Anchors {
+		identity, _, err := format.ReadAnchor(b)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out[identity] = b
+	}
+	return out
+}
+
+func describeFact(f *fact) string {
+	s := strconv.Itoa(f.pos) + " failed=" + strings.Join(f.failed, ",") + " unknown=" + strings.Join(f.unknown, ",") + " limits=" + strings.Join(f.limits, ",")
+	if f.conflict != nil {
+		s += " conflict=" + strconv.FormatInt(f.conflict.With, 10) + "/" + strconv.FormatBool(f.conflict.Copy)
+	}
+	return s
+}
+
+func describeStated(item any) string {
+	m := item.(map[string]any)
+	join := func(key string) string {
+		v, ok := m[key].([]any)
+		if !ok {
+			return ""
+		}
+		return strings.Join(stated(v), ",")
+	}
+	s := strconv.FormatInt(m["position"].(int64), 10) + " failed=" + join("failed") + " unknown=" + join("unknown") + " limits=" + join("limits")
+	if c, ok := m["conflict"].(map[string]any); ok {
+		s += " conflict=" + strconv.FormatInt(c["with"].(int64), 10) + "/" + strconv.FormatBool(c["copy"].(bool))
+	}
+	return s
+}
+
+// The facts are decided in log order, and every entry read has the status the vector states:
+// recognized, not recognized with what failed or is unknown, pending, indeterminate with the limits
+// in its way, or invalid.
+func TestEveryEntryHasTheStatusTheVectorsState(t *testing.T) {
+	for name, l := range vectors(t) {
+		byIdentity := anchorBytes(t, l)
+		for _, c := range cases(t, name) {
+			where := name + "/" + c.name
+			if _, stated := c.want["recognized"]; !stated {
+				continue
+			}
+			r := prepare(t, l, c, byIdentity)
+			u, pkgs, err := r.bootstrapPackages()
+			if err != nil {
+				t.Fatalf("%s: %v", where, err)
+			}
+			r.decideFacts(u, pkgs)
+			got := r.lists()
+			var recognized []string
+			for _, p := range got.Recognized {
+				recognized = append(recognized, strconv.FormatInt(p, 10))
+			}
+			var wantRecognized []string
+			for _, p := range c.want["recognized"].([]any) {
+				wantRecognized = append(wantRecognized, strconv.FormatInt(p.(int64), 10))
+			}
+			if !sameList(orEmpty(recognized), orEmpty(wantRecognized)) {
+				t.Errorf("%s: recognized %q, and the vector states %q", where, recognized, wantRecognized)
+			}
+			for field, facts := range map[string][]*fact{"not_recognized": got.NotRecognized, "pending": got.Pending, "indeterminate": got.Indeterminate} {
+				var have, want []string
+				for _, f := range facts {
+					have = append(have, describeFact(f))
+				}
+				for _, item := range c.want[field].([]any) {
+					want = append(want, describeStated(item))
+				}
+				if !sameList(orEmpty(have), orEmpty(want)) {
+					t.Errorf("%s: %s\n  got  %q\n  want %q", where, field, have, want)
 				}
 			}
 		}
