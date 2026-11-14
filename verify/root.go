@@ -14,6 +14,7 @@ const kernelPackage = "kernel"
 // must sign together, the log it names, the identities of the bootstrap facts in order, and the
 // witnesses whose anchors count.
 type TrustRoot struct {
+	Raw       map[string]any // the trust root's content, as conditions read it
 	Owner     string
 	Keys      []string
 	Threshold int
@@ -34,7 +35,7 @@ func ReadTrustRoot(v any) (*TrustRoot, error) {
 	if !ok {
 		return nil, errors.New("a trust root is an object")
 	}
-	t := &TrustRoot{}
+	t := &TrustRoot{Raw: m}
 	t.Owner, _ = m["owner"].(string)
 	t.Log, _ = m["log"].(string)
 	threshold, _ := m["threshold"].(int64)
@@ -155,4 +156,34 @@ func (r *run) content(e Entry) any {
 func list(v any) []any {
 	l, _ := v.([]any)
 	return l
+}
+
+// bootstrapPackages reads the package revisions the bootstrap configuration pins, checks them
+// together and gives the universe their expressions evaluate in, with each package's name by the
+// digest of its definitions, and the bootstrap's custody profile.
+func (r *run) bootstrapPackages() (*format.Universe, map[string]string, error) {
+	pkgs := map[string]*format.Package{}
+	byDigest := map[string]string{}
+	for i := range r.root.Bootstrap {
+		e := r.entries[i]
+		switch e.Fact.Fact["kind"] {
+		case kernelPackage + "/custody-profile":
+			r.bootstrapCustody, _ = r.content(e).(map[string]any)
+		case kernelPackage + "/package-revision":
+			content, _ := r.content(e).(map[string]any)
+			name, _ := content["name"].(string)
+			bytesDigest, _ := content["bytes"].(string)
+			parsed, err := format.Parse(r.log.Blobs[bytesDigest])
+			if err != nil {
+				return nil, nil, fmt.Errorf("the bootstrap's %s definitions: %w", name, err)
+			}
+			p := format.Build(name, name, parsed)
+			pkgs[name], byDigest[p.Digest] = p, name
+		}
+	}
+	u, problems := format.Prepare(pkgs, format.Kernel(kernelPackage))
+	if len(problems) > 0 {
+		return nil, nil, fmt.Errorf("the bootstrap's packages do not conform: %s", problems[0])
+	}
+	return u, byDigest, nil
 }

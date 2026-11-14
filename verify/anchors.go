@@ -22,6 +22,14 @@ type run struct {
 	compromised map[string]int64
 	chainActs   []int
 	anchors     []*anchor
+	// What deciding the facts needs and finds: the packages the bootstrap configuration pins, by
+	// the digest of their definitions, the universe they are checked in, the bootstrap's custody
+	// profile, the read, and every fact read.
+	universe         *format.Universe
+	packageOf        map[string]string
+	bootstrapCustody map[string]any
+	readResult       ReadResult
+	facts            []*fact
 }
 
 // anchor is an anchor that was read, with what the second step made of it.
@@ -143,7 +151,7 @@ func (r *run) signedByTrustRoot(e Entry) bool {
 // name the same previous anchor are an equivocation, and neither, nor any later one of that
 // witness, is recognized. Each must lie no earlier, in position or observed time, than the one it
 // names, and where the log extends it, the log must extend that one too.
-func (r *run) judgeAnchors(read [][]byte) (AnchorsResult, []Equivocation) {
+func (r *run) judgeAnchors(read [][]byte) AnchorsResult {
 	var res AnchorsResult
 	byWitness := map[string][]*anchor{}
 	for _, b := range read {
@@ -218,7 +226,7 @@ func (r *run) judgeAnchors(read [][]byte) (AnchorsResult, []Equivocation) {
 	}
 	sort.SliceStable(equivocations, func(i, j int) bool { return equivocations[i].Witness < equivocations[j].Witness })
 	res.Equivocations = equivocations
-	return res, equivocations
+	return res
 }
 
 // judgeRead finds whether the read is behind, where it ends and where a break starts, and the
