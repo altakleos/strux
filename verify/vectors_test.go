@@ -337,3 +337,80 @@ func TestEveryEntryHasTheStatusTheVectorsState(t *testing.T) {
 		}
 	}
 }
+
+func ints(v any) []string {
+	out := []string{}
+	for _, x := range v.([]any) {
+		out = append(out, strconv.FormatInt(x.(int64), 10))
+	}
+	return out
+}
+
+func intsOf(v []int64) []string {
+	out := []string{}
+	for _, x := range v {
+		out = append(out, strconv.FormatInt(x, 10))
+	}
+	return out
+}
+
+// The use relied on is decided for its subject, in its two passes, with its beneficiaries, the
+// facts the second pass sets aside, those one pass alone recognizes, the exceptions that cover a
+// condition and the limits in its way, as every case of the vectors states.
+func TestARelianceIsDecidedAsTheVectorsState(t *testing.T) {
+	for name, l := range vectors(t) {
+		byIdentity := anchorBytes(t, l)
+		for _, c := range cases(t, name) {
+			want, ok := c.want["reliance"].(map[string]any)
+			if !ok {
+				continue
+			}
+			where := name + "/" + c.name
+			r := prepare(t, l, c, byIdentity)
+			u, pkgs, err := r.bootstrapPackages()
+			if err != nil {
+				t.Fatalf("%s: %v", where, err)
+			}
+			r.decideFacts(u, pkgs)
+			input := c.inputs["reliance"].(map[string]any)
+			recorded := input["subject"].(map[string]any)["recorded"].(map[string]any)
+			at := r.n
+			if p, ok := input["position"].(int64); ok {
+				at = int(p)
+			}
+			got := r.rely(input["use"].(string), format.Reference{Fact: recorded["fact"].(string), Digest: recorded["digest"].(string)}, at)
+			check := func(field, have, stated string) {
+				if have != stated {
+					t.Errorf("%s: reliance.%s is %s, and the vector states %s", where, field, have, stated)
+				}
+			}
+			check("status", got.Status, want["status"].(string))
+			check("subject", got.Subject, want["subject"].(string))
+			check("candidate", got.Candidate, want["candidate"].(string))
+			if b, ok := want["beneficiaries"].([]any); ok {
+				check("beneficiaries", strings.Join(got.Beneficiaries, ","), strings.Join(stated(b), ","))
+			}
+			for field, have := range map[string][]int64{"set_aside": got.SetAside, "second_only": got.SecondOnly, "first_only": got.FirstOnly, "exceptions": got.Exceptions} {
+				check(field, strings.Join(intsOf(have), ","), strings.Join(ints(want[field]), ","))
+			}
+			check("limits", strings.Join(got.Limits, ","), strings.Join(stated(want["limits"]), ","))
+			var have, stated []string
+			for _, cond := range got.Conditions {
+				have = append(have, cond.Condition+" "+cond.First+"/"+cond.Second+" "+strings.Join(intsOf(cond.FirstCoveredBy), ",")+"/"+strings.Join(intsOf(cond.SecondCoveredBy), ","))
+			}
+			for _, item := range want["conditions"].([]any) {
+				m := item.(map[string]any)
+				covered := func(key string) string {
+					if v, ok := m[key].([]any); ok {
+						return strings.Join(ints(v), ",")
+					}
+					return ""
+				}
+				stated = append(stated, m["condition"].(string)+" "+m["first"].(string)+"/"+m["second"].(string)+" "+covered("first_covered_by")+"/"+covered("second_covered_by"))
+			}
+			if !sameList(orEmpty(have), orEmpty(stated)) {
+				t.Errorf("%s: reliance.conditions\n  got  %q\n  want %q", where, have, stated)
+			}
+		}
+	}
+}
