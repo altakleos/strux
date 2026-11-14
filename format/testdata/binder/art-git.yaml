@@ -1,0 +1,24 @@
+format: 1
+package: art-git
+revision: 1
+depends_on: [art-neutral]
+
+definitions:
+  git-capture:
+    purpose: Maps a file in a git repository onto the neutral observation of an artifact revision.
+    meaning:
+      summary: >
+        A name maps to a path, a revision to a commit, and the line a change lands on to a branch.
+        A symbolic link, a submodule or a large-file pointer is not a plain document.
+    operations:
+      capture:
+        binds: art-neutral/artifact-revision.operations.capture
+        at: evaluation
+        inputs:
+          name: { type: string, required: true }
+          operation_id: { type: string, required: true }
+          commit: { type: string, meaning: "The commit to read; the head of the default branch when absent." }
+        effect: "Reads the blob at the path the name maps to in the commit, retains it under its digest, and records the neutral observation: a regular file inside the repository is a plain document."
+        returns: "The retained revision and what was observed."
+        refuses: "An artifact that is not capturable, with the reason and any fallback."
+        reports: "What was retained. Nothing is copied silently."
