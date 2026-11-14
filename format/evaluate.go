@@ -120,6 +120,7 @@ func result(out ref.Val, _ *cel.EvalDetails, err error) Result {
 // unknown, only what reads it is unknown.
 type lazy struct {
 	self     map[string]any
+	vars     map[string]any // the other variables of a use's context: fact, predecessor, custody, trust_root
 	programs map[string]cel.Program
 	memo     map[string]ref.Val
 }
@@ -127,6 +128,9 @@ type lazy struct {
 func (a *lazy) ResolveName(name string) (any, bool) {
 	if name == "self" {
 		return a.self, a.self != nil
+	}
+	if v, ok := a.vars[name]; ok {
+		return v, v != nil
 	}
 	prg, ok := a.programs[name]
 	if !ok {
