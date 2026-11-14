@@ -9,7 +9,7 @@ from inspect_ai import eval as inspect_eval
 from inspect_ai.model import ModelOutput, get_model
 
 from strux_evals.arms import ARMS, is_elf, sandbox_files, strux_binary
-from strux_evals.dataset import UNAVAILABLE, expected, load_specs, samples
+from strux_evals.dataset import UNAVAILABLE, Spec, expected, field_of, load_specs, samples, task_files
 from strux_evals.task import is_correct, strux_stub
 
 REPO = Path(__file__).resolve().parents[2]
@@ -26,8 +26,15 @@ def scripted(answer: str):
     )
 
 
+def version_spec():
+    (spec,) = [s for s in load_specs() if s.id == "version"]
+    return spec
+
+
 def run(arm: str, answer: str, log_dir: Path):
-    (log,) = inspect_eval(strux_stub(arm=arm), model=scripted(answer), log_dir=str(log_dir), display="none")
+    (log,) = inspect_eval(
+        strux_stub(arm=arm, tasks="version"), model=scripted(answer), log_dir=str(log_dir), display="none"
+    )
     assert log.status == "success", log.error
     return log
 
@@ -48,7 +55,7 @@ def test_arms_differ_only_in_strux():
 
 
 def test_expected_answers_per_arm():
-    spec = load_specs()[0]
+    spec = version_spec()
     assert expected(spec, "without_strux") == UNAVAILABLE
     assert expected(spec, "with_strux") not in ("", UNAVAILABLE)
 
@@ -56,7 +63,9 @@ def test_expected_answers_per_arm():
 def test_docker_layout_is_absolute_and_the_prompt_names_it():
     a, b = samples("with_strux", bin="/work/bin"), samples("without_strux", bin="/work/bin")
     assert all("/work/bin" in s.input and "{bin}" not in s.input for s in a + b)
-    assert list(a[0].files) == ["/work/bin/strux"] and list(b[0].files) == ["/work/bin/.keep"]
+    assert all("/work/bin/strux" in s.files and "/work/bin/.keep" not in s.files for s in a)
+    assert all("/work/bin/.keep" in s.files and "/work/bin/strux" not in s.files for s in b)
+    assert all(name.startswith("/work/") for s in a + b for name in s.files)
     assert all(s.setup == "mkdir -p /work/bin && find /work/bin -type f -exec chmod +x {} +" for s in a + b)
     assert [s.input for s in a] == [s.input for s in b]
 
@@ -76,7 +85,7 @@ def accuracy(log) -> float:
 
 
 def test_with_strux_scores_the_real_version(tmp_path):
-    version = expected(load_specs()[0], "with_strux")
+    version = expected(version_spec(), "with_strux")
     log = run("with_strux", version, tmp_path)
     result = bash_result(log)
     assert result.error is None and json.loads(result.text)["version"] == version
@@ -146,7 +155,7 @@ def test_offline_agent_takes_no_version():
 def test_a_rebuilt_binary_is_run_again(tmp_path, monkeypatch):
     binary = tmp_path / "strux"
     monkeypatch.setenv("STRUX_BIN", str(binary))
-    spec = load_specs()[0]
+    spec = version_spec()
     for version in ("v1", "v22"):
         binary.write_text(f'#!/bin/sh\necho \'{{"version":"{version}"}}\'\n')
         binary.chmod(0o755)
@@ -156,3 +165,49 @@ def test_a_rebuilt_binary_is_run_again(tmp_path, monkeypatch):
 def test_unknown_agent_is_rejected():
     with pytest.raises(ValueError, match="unknown agent"):
         strux_stub(arm="with_strux", agent="codex")
+
+
+def test_a_task_names_the_tasks_it_runs():
+    assert [s.id for s in samples("without_strux", ids=("version",))] == ["version"]
+    with pytest.raises(ValueError, match="no task"):
+        samples("without_strux", ids=("no-such-task",))
+
+
+def test_a_field_is_a_dotted_path():
+    out = {"packages": [{"package": "notes", "digest": "sha256:ab"}], "problems": []}
+    assert field_of(out, "packages.0.digest") == "sha256:ab"
+    assert field_of(out, "problems") == []
+
+
+def test_task_files_lie_in_the_working_directory(tmp_path):
+    (tmp_path / "t.yaml").write_text(
+        "id: t\nprompt: Read {work}/a.txt with the programs in {bin}, or say unavailable.\n"
+        "files:\n  a.txt: hello\n  sub/b.txt: there\n"
+        "expect:\n  run: [read]\n  field: text\n"
+    )
+    (spec,) = load_specs(tmp_path)
+    assert spec.files == (("a.txt", "hello"), ("sub/b.txt", "there"))
+    local, docker = task_files(spec), task_files(spec, bin="/work/bin")
+    assert list(local) == ["a.txt", "sub/b.txt"] and list(docker) == ["/work/a.txt", "/work/sub/b.txt"]
+    assert all(v.startswith("data:text/plain;base64,") for v in local.values())
+    a, b = samples("without_strux", specs=[spec]), samples("without_strux", specs=[spec], bin="/work/bin")
+    assert a[0].input == "Read ./a.txt with the programs in bin, or say unavailable."
+    assert b[0].input == "Read /work/a.txt with the programs in /work/bin, or say unavailable."
+
+
+@pytest.mark.parametrize("name", ["/abs.txt", "../out.txt", "a/../b.txt", "", "./a.txt"])
+def test_a_task_file_is_a_plain_relative_path(tmp_path, name):
+    (tmp_path / "t.yaml").write_text(
+        f"id: t\nprompt: unavailable\nfiles:\n  {name!r}: x\nexpect:\n  run: [x]\n  field: x\n"
+    )
+    with pytest.raises(ValueError, match="plain relative path"):
+        load_specs(tmp_path)
+
+
+def test_strux_runs_beside_the_task_files(tmp_path, monkeypatch):
+    binary = tmp_path / "strux"
+    binary.write_text('#!/bin/sh\nprintf \'{"text":"%s"}\' "$(cat a.txt)"\n')
+    binary.chmod(0o755)
+    monkeypatch.setenv("STRUX_BIN", str(binary))
+    spec = Spec("t", "unavailable", ("read",), "text", (("a.txt", "hello"),))
+    assert expected(spec, "with_strux") == "hello"

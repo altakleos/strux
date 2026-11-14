@@ -81,8 +81,10 @@ def strux_stub(
     sandbox: str = "local",
     token_limit: int = 500_000,
     time_limit: int = 900,
+    tasks: str = "",
 ) -> Task:
-    """One comparison arm. A live agent must run in a Docker sandbox, so that it cannot reach a
+    """One comparison arm, over every task or, with tasks, over those named, separated by commas.
+    A live agent must run in a Docker sandbox, so that it cannot reach a
     strux installed on the host, and at a pinned version, so that runs are comparable. It works in
     /work, which holds the programs in /work/bin. Its limits are tokens and seconds, because a message
     limit counts a live agent's whole conversation and would cut off a thorough one. The offline agent
@@ -100,7 +102,7 @@ def strux_stub(
         if arm == "with_strux" and not is_elf(strux_binary()):
             raise ValueError("a Docker sandbox runs Linux: build strux with GOOS=linux and the container's GOARCH")
     return Task(
-        dataset=samples(arm, bin=bin_dir(sandbox)),
+        dataset=samples(arm, bin=bin_dir(sandbox), ids=tuple(t for t in tasks.split(",") if t)),
         solver=AGENTS[agent](agent_version),
         scorer=submitted_target(),
         sandbox=sandbox,
