@@ -58,6 +58,7 @@ type Entry struct {
 	Position int
 	Fact     *format.Entry // nil for an invalid entry
 	Refused  string        // what the encoding refuses, for an invalid entry
+	Signers  []string      // the keys whose signatures the record holds, for a fact
 }
 
 // ReadEntries reads the first n records of a log, as the fact each holds or as an invalid entry,
@@ -70,7 +71,7 @@ func (l *Log) ReadEntries(log string, n int) []Entry {
 		var refusal *format.Refusal
 		switch {
 		case err == nil:
-			out = append(out, Entry{Position: i, Fact: e})
+			out = append(out, Entry{Position: i, Fact: e, Signers: signers(record)})
 		case errors.As(err, &refusal):
 			out = append(out, Entry{Position: i, Refused: refusal.What})
 		default:
@@ -93,4 +94,22 @@ func contentDigest(record []byte) string {
 		return ""
 	}
 	return digest
+}
+
+// signers are the keys a record's signatures name, in the order the record holds them.
+func signers(record []byte) []string {
+	v, err := format.ParseJSON(record)
+	if err != nil {
+		return nil
+	}
+	top, _ := v.(map[string]any)
+	sigs, _ := top["signatures"].([]any)
+	var out []string
+	for _, s := range sigs {
+		m, _ := s.(map[string]any)
+		if key, ok := m["key"].(string); ok {
+			out = append(out, key)
+		}
+	}
+	return out
 }
