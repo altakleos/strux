@@ -1,0 +1,23 @@
+# A package of definitions lies in the working directory. The expected answer is the digest
+# strux gives the package, from the JSON result of strux def check.
+id: def-check
+files:
+  notes.yaml: |
+    format: 1
+    package: notes
+    revision: 1
+    definitions:
+      note:
+        purpose: A short note that someone wrote.
+        structure:
+          text: { type: text, required: true, meaning: "What the note says." }
+        uses:
+          recognize: {}
+prompt: >-
+  Programs installed for you are in {bin}. The file {work}/notes.yaml holds a package of
+  definitions. Find the digest that strux gives that package. If strux is not available, the
+  answer is "unavailable". End your reply with a line "ANSWER: <answer>" holding only the digest,
+  or "unavailable".
+expect:
+  run: [def, check, --json, notes.yaml]
+  field: packages.0.digest
