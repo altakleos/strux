@@ -20,6 +20,10 @@ type output struct {
 	err  error // what went wrong answering --help, which cobra gives no way to return
 }
 
+// failing is a result that can report a failure: the command writes it as any result, and then
+// fails with the error it gives, if any.
+type failing interface{ failure() error }
+
 // runs returns a cobra RunE that computes a command's result with f and writes it.
 func (o *output) runs(f func(*cobra.Command, []string) (any, error)) func(*cobra.Command, []string) error {
 	return func(c *cobra.Command, args []string) error {
@@ -27,7 +31,13 @@ func (o *output) runs(f func(*cobra.Command, []string) (any, error)) func(*cobra
 		if err != nil {
 			return err
 		}
-		return o.write(v)
+		if err := o.write(v); err != nil {
+			return err
+		}
+		if r, ok := v.(failing); ok {
+			return r.failure()
+		}
+		return nil
 	}
 }
 

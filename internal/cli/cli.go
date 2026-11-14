@@ -93,6 +93,7 @@ func newRoot(out *output) *cobra.Command {
 		}
 	})
 	root.SetHelpCommand(newHelp(out))
+	root.AddCommand(newDef(out))
 	root.AddCommand(newVersion(out))
 	return root
 }
