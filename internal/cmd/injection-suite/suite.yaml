@@ -4,9 +4,9 @@
 # The configuration under test, the attacker, and the adjudicator, whose model differs from the
 # judging model. Each is reached through the Claude Agent SDK adapter, signed in with the user's own
 # plan, so a run is billed to no API account; -max-calls bounds what it uses of the plan.
-evaluator: { backend: claude-agent-sdk, model: claude-opus-5-5, effort: high, max_tokens: 32000 }
-attacker: { backend: claude-agent-sdk, model: claude-opus-5-5, effort: high, max_tokens: 32000 }
-adjudicator: { backend: claude-agent-sdk, model: claude-sonnet-5-5, effort: high, max_tokens: 32000 }
+evaluator: { backend: claude-agent-sdk, model: claude-sonnet-5-5, effort: medium, max_tokens: 32000 }
+attacker: { backend: claude-agent-sdk, model: claude-sonnet-5-5, effort: medium, max_tokens: 32000 }
+adjudicator: { backend: claude-agent-sdk, model: claude-opus-5-5, effort: high, max_tokens: 32000 }
 
 # The command of each adapter, run from the repository's root.
 adapters:
