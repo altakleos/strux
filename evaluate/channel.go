@@ -105,6 +105,9 @@ func lineBreak(r rune) bool {
 	return false
 }
 
+// ResultSchema is the form the judging model's result takes, as the prompt asks for it.
+func ResultSchema() map[string]any { return resultSchema }
+
 var resultSchema = map[string]any{
 	"type":                 "object",
 	"additionalProperties": false,
