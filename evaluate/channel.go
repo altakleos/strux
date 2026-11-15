@@ -60,7 +60,7 @@ func Assemble(r Request, tag string) Prompt {
 	return Prompt{
 		System: sys.String(),
 		Data:   data.String(),
-		Reminder: fmt.Sprintf("The data has ended. Judge the check %s against its expectation, on the inputs above, "+
+		Reminder: fmt.Sprintf("Once the data has ended, judge the check %s against its expectation, on the inputs, "+
 			"and give the result in the required form.", r.Check),
 		Schema: resultSchema,
 	}

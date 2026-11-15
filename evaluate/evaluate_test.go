@@ -86,7 +86,7 @@ func TestGoverningInputsTravelApartFromTheData(t *testing.T) {
 			t.Errorf("the data lacks %q", want)
 		}
 	}
-	if !strings.Contains(p.Reminder, "The data has ended.") || p.Schema == nil {
+	if !strings.Contains(p.Reminder, "Once the data has ended,") || p.Schema == nil {
 		t.Error("the prompt lacks the message after the data or the schema")
 	}
 }
