@@ -22,14 +22,25 @@ type run struct {
 	compromised map[string]int64
 	chainActs   []int
 	anchors     []*anchor
-	// What deciding the facts needs and finds: the packages the bootstrap configuration pins, by
-	// the digest of their definitions, the universe they are checked in, the bootstrap's custody
-	// profile, the read, and every fact read.
+	// What deciding the facts needs and finds: the universe they are checked in, which grows as a
+	// configuration activates packages, the bootstrap's custody profile, the read, and every fact
+	// read.
 	universe         *format.Universe
-	packageOf        map[string]string
+	universes        []*format.Universe // the bootstrap's, then each recognized configuration's
 	bootstrapCustody map[string]any
 	readResult       ReadResult
 	facts            []*fact
+	// A pass of a use within an enclosing pass: the facts set aside and kept along the chain of
+	// passes that leads to it, and the uses being decided, shared by every pass of the run.
+	aside, kept map[int]bool
+	visiting    map[string]bool
+	// collect, while the conditions of the use relied on are decided, gathers the exceptions that
+	// cover a use read through permitted that comes out true.
+	collect *[]int64
+	// chain is the trust-root chain: the initial trust root and each recognized revision, and
+	// chainFailed what each trust-root revision that is not recognized fails.
+	chain       []rootIn
+	chainFailed map[int][]string
 }
 
 // anchor is an anchor that was read, with what the second step made of it.
@@ -74,7 +85,7 @@ func newRun(l *Log, root *TrustRoot, n int, ended bool) (*run, error) {
 	if n > len(l.Records) {
 		return nil, errors.New("the read counts more entries than the log holds")
 	}
-	r := &run{log: l, root: root, n: n, ended: ended, compromised: map[string]int64{}}
+	r := &run{log: l, root: root, n: n, ended: ended, compromised: map[string]int64{}, aside: map[int]bool{}, kept: map[int]bool{}, visiting: map[string]bool{}}
 	r.entries = l.ReadEntries(root.Log, n)
 	k, err := r.bootstrapKernel()
 	if err != nil {
@@ -84,16 +95,23 @@ func newRun(l *Log, root *TrustRoot, n int, ended bool) (*run, error) {
 	return r, nil
 }
 
-// judgeChainActs judges the chain acts in log order, before anything else. Under the initial trust
-// root, the one chain act of the vectors is a compromise revocation: a trust-root act, signed by as
-// many distinct keys of the trust root as its threshold names, decided by the kernel the bootstrap
-// configuration pins, with content of its kind's structure, and neither a copy of an earlier chain
-// act nor a repeat of the operation identity of one.
+// judgeChainActs judges the chain acts in log order, before anything else, each under the trust
+// root in force at its position and by the kernel the bootstrap configuration pins. A trust-root
+// revision is judged by its signatures, its structure and its kind's conditions; a compromise
+// revocation is a trust-root act, signed by as many distinct keys of the trust root in force as
+// its threshold names, with content of its kind's structure, and neither a copy of an earlier
+// chain act nor a repeat of the operation identity of one.
 func (r *run) judgeChainActs() error {
 	decl := r.kernel.pkg.Defs["compromise-revocation"]
 	if decl == nil {
 		return errors.New("the kernel defines no compromise revocation")
 	}
+	kernelUniverse, problems := format.Prepare(map[string]*format.Package{kernelPackage: r.kernel.pkg}, format.Kernel(kernelPackage))
+	if len(problems) > 0 {
+		return errors.New("the kernel does not conform: " + problems[0])
+	}
+	r.chain = []rootIn{{root: r.root, from: -1, identity: format.Digest(r.root.Raw)}}
+	r.chainFailed = map[int][]string{}
 	seen := map[string]bool{}
 	operations := map[[2]string]bool{}
 	for _, e := range r.entries {
@@ -103,12 +121,28 @@ func (r *run) judgeChainActs() error {
 		p := e.Fact.Fact
 		switch p["kind"] {
 		case kernelPackage + "/trust-root":
-			return errors.New("a trust-root revision is not verified yet")
+			op := [2]string{str(p["operation"]), str(p["operation_id"])}
+			failed := r.judgeRevision(e, kernelUniverse)
+			if seen[e.Fact.Identity] || op[1] != "" && operations[op] {
+				failed = append(failed, recognizeCondition("order"))
+			}
+			if len(failed) > 0 {
+				r.chainFailed[e.Position] = failed
+				continue
+			}
+			seen[e.Fact.Identity] = true
+			if op[1] != "" {
+				operations[op] = true
+			}
+			own, _ := ReadTrustRoot(r.content(e))
+			r.chain = append(r.chain, rootIn{root: own, from: e.Position, identity: e.Fact.Identity})
+			r.chainActs = append(r.chainActs, e.Position)
+			continue
 		case kernelPackage + "/compromise-revocation":
 		default:
 			continue
 		}
-		if p["package"] != r.kernel.digest || p["key"] != nil || !r.signedByTrustRoot(e) {
+		if p["package"] != r.kernel.digest || p["key"] != nil || !signedBy(r.rootAt(e.Position), e) {
 			continue
 		}
 		content, ok := r.content(e).(map[string]any)
@@ -133,16 +167,10 @@ func (r *run) judgeChainActs() error {
 	return nil
 }
 
-// signedByTrustRoot reports whether as many distinct keys of the trust root as its threshold names
-// signed the entry.
+// signedByTrustRoot reports whether as many distinct keys of the trust root in force at the entry's
+// position as its threshold names signed the entry.
 func (r *run) signedByTrustRoot(e Entry) bool {
-	distinct := map[string]bool{}
-	for _, k := range e.Signers {
-		if r.root.isKey(k) {
-			distinct[k] = true
-		}
-	}
-	return len(distinct) >= r.root.Threshold
+	return signedBy(r.rootAt(e.Position), e)
 }
 
 // judgeAnchors reads the anchors and recognizes each witness's along the chain their previous
@@ -171,7 +199,7 @@ func (r *run) judgeAnchors(read [][]byte) AnchorsResult {
 			an.extended = format.Head(r.log.Records[:position+1]) == an.head
 		}
 		r.anchors = append(r.anchors, an)
-		witness, named := r.root.witness(an.key)
+		witness, named := r.rootAt(int(position)).witness(an.key)
 		from, revoked := r.compromised[an.key]
 		if !named || an.log != r.root.Log || revoked && position >= from {
 			continue

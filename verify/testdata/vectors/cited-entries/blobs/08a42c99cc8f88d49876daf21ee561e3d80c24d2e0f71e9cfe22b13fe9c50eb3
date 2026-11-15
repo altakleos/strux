@@ -1,1 +1,0 @@
-{"candidate":{"digest":"sha256:9c5b5311059b203b385fc4065bd93758014951eb37f1fbcbd26edcfd68e7bbfa","fact":"sha256:4a768a5af8bcf8566570f70809de9337b4b5182ccdf39424dc34945c72bedb0d"},"checks":["lexicon/glossary-entry.checks.semantic.meaning-explains-term"],"context":[],"intended_use":"lexicon/glossary-entry.uses.cite-as-authoritative"}

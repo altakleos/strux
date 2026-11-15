@@ -1,0 +1,1 @@
+{"credential":{"public_key":"ed25519:19a498d077ec282f77d4a0ece6cba9f0d84b9e365693df18518a19f92264977d"},"environment":"lead-machine","may_sign":["kernel/custody-profile"],"principal":"lead"}

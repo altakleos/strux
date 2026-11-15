@@ -53,7 +53,7 @@ func (r *run) rely(use string, subject format.Reference, at int) RelianceResult 
 		return res
 	}
 	in := r.useInputs(subj, name, at)
-	beneficiaries, known, err := r.universe.EvaluateUseList(pkg, def, name, "beneficiaries", in, reader{r: r, pos: at})
+	beneficiaries, known, err := r.universeFor(subj).EvaluateUseList(pkg, def, name, "beneficiaries", in, reader{r: r, pos: at})
 	if err != nil || known.Value != "true" {
 		res.Status, res.Limits = "indeterminate", []string{"interpretation"}
 		return res
@@ -63,8 +63,11 @@ func (r *run) rely(use string, subject format.Reference, at int) RelianceResult 
 	res.Beneficiaries = beneficiaries
 	second, setAside := r.secondPass(beneficiaries, subj, at)
 	node := mapOf(mapOf(r.definition(subj)["uses"])[name])
+	var read []int64 // the exceptions that cover a use its conditions read through permitted
+	r.collect, second.collect = &read, &read
 	firstResults := r.passConditions(subj, pkg, def, name, node, at, subject.Digest)
 	secondResults := second.passConditions(subj, pkg, def, name, node, at, subject.Digest)
+	r.collect, second.collect = nil, nil
 	holdsAll, failed, limits := subj.status == Recognized, subj.status == NotRecognized, []string{}
 	var exceptions []int64
 	for _, cond := range sortedKeys(firstResults) {
@@ -117,6 +120,7 @@ func (r *run) rely(use string, subject format.Reference, at int) RelianceResult 
 	switch {
 	case holdsAll:
 		res.Status = "holds"
+		exceptions = append(exceptions, read...)
 		sort.Slice(exceptions, func(i, j int) bool { return exceptions[i] < exceptions[j] })
 		res.Exceptions = dedupeInts(exceptions)
 	case failed:
@@ -138,7 +142,7 @@ func word(v string) string {
 // useInputs are what the conditions of the use relied on read: the subject, its fact, the revision
 // it supersedes where the use decides revisions, and the custody profile and trust root in force.
 func (r *run) useInputs(subj *fact, use string, at int) format.UseInputs {
-	in := format.UseInputs{Self: subj.content, Fact: r.envelope(subj), Custody: r.custodyAt(at), TrustRoot: r.root.Raw}
+	in := format.UseInputs{Self: subj.content, Fact: r.envelope(subj), Custody: r.custodyAt(at), TrustRoot: r.rootAt(at).Raw}
 	node := mapOf(mapOf(r.definition(subj)["uses"])[use])
 	if revises, _ := node["revises"].(bool); revises {
 		if expected := str(subj.p["expected"]); expected != "" {
@@ -155,7 +159,7 @@ func (r *run) useInputs(subj *fact, use string, at int) format.UseInputs {
 func (r *run) passConditions(subj *fact, pkg, def, use string, node map[string]any, at int, candidate string) map[string]outcome {
 	out := map[string]outcome{}
 	requires := requirements(subj.kind, r.definition(subj), node)
-	results, err := r.universe.EvaluateUse(pkg, def, use, r.useInputs(subj, use, at), reader{r: r, pos: at})
+	results, err := r.universeFor(subj).EvaluateUse(pkg, def, use, r.useInputs(subj, use, at), reader{r: r, pos: at})
 	for _, name := range sortedKeys(requires) {
 		cond := mapOf(requires[name])
 		switch {
@@ -183,7 +187,7 @@ func (r *run) passConditions(subj *fact, pkg, def, use string, node map[string]a
 func (r *run) semantic(subj *fact, path string, at int, candidate string) outcome {
 	pkg, rest, _ := strings.Cut(path, "/")
 	def, check, _ := strings.Cut(rest, ".checks.semantic.")
-	p := r.universe.Packages[pkg]
+	p := r.universeFor(subj).Packages[pkg]
 	if p == nil || p.Defs[def] == nil {
 		return fails
 	}
@@ -296,7 +300,7 @@ func (r *run) secondPass(beneficiaries []string, subj *fact, at int) (*run, map[
 	reach := map[string]bool{}
 	others := map[string]bool{}
 	for _, b := range beneficiaries {
-		if b != r.root.Owner {
+		if b != r.rootAt(at).Owner {
 			others[b] = true
 		}
 	}
@@ -316,23 +320,30 @@ func (r *run) secondPass(beneficiaries []string, subj *fact, at int) (*run, map[
 		}
 		return false
 	}
+	// Within an enclosing pass, each fact is treated by the first of these that applies: one the
+	// enclosing pass sets aside stays set aside, one this pass keeps has its status there, one this
+	// pass sets aside is set aside, one the enclosing pass keeps keeps its status, and every other
+	// fact is decided again.
 	second := *r
 	second.facts = make([]*fact, len(r.facts))
+	second.aside, second.kept = map[int]bool{}, map[int]bool{}
 	setAside := map[int]bool{}
 	predecessor := str(subj.p["expected"])
 	for i := 0; i < at && i < len(r.facts); i++ {
 		f := r.facts[i]
 		switch {
 		case f == nil:
-		case f.trustRootAct || f == subj || f.entry.Fact.Identity == predecessor:
-			second.facts[i] = f
-		case f.kind == kernelPackage+"/finding" && !within(f):
-			second.facts[i] = f
+		case r.aside[i]:
+			second.facts[i], second.aside[i] = f, true
+		case f.trustRootAct || f == subj || f.entry.Fact.Identity == predecessor, f.kind == kernelPackage+"/finding" && !within(f):
+			second.facts[i], second.kept[i] = f, true
 		case within(f):
 			kept := *f
 			kept.status = NotRecognized
 			second.facts[i] = &kept
-			setAside[i] = true
+			setAside[i], second.aside[i] = true, true
+		case r.kept[i]:
+			second.facts[i], second.kept[i] = f, true
 		default:
 			g := &fact{pos: f.pos, entry: f.entry, p: f.p, kind: f.kind, pkg: f.pkg, def: f.def, content: f.content, bootstrap: f.bootstrap, trustRootAct: f.trustRootAct, instance: f.instance}
 			second.decide(g)

@@ -1,0 +1,131 @@
+format: 1
+package: sample
+revision: 1
+depends_on: [kernel]
+types:
+  kind: { enum: [first, second] }
+definitions:
+  value:
+    purpose: The instance a conformance vector's expression reads, as self.
+    types:
+      inner:
+        fields:
+          label: { type: string }
+          items: { type: list(integer) }
+    structure:
+      num: { type: integer }
+      zero: { type: integer }
+      big: { type: integer }
+      flag: { type: boolean }
+      name: { type: string }
+      word: { type: string }
+      word_nfd: { type: string }
+      when: { type: time }
+      kind: { type: kind }
+      items: { type: list(integer) }
+      words: { type: list(string) }
+      tags: { type: "map(string, string)" }
+      inner: { type: inner }
+      inner_same: { type: inner }
+      inner_extra: { type: inner }
+      entries: { type: list(inner) }
+      more: { type: list(inner) }
+      combo: { type: combination }
+      findings: { type: "list(ref(kernel/finding))", meaning: "A vector gives each finding by its content, as if its reference were resolved." }
+      held_back: { type: string, enabled: false, meaning: "A field this revision does not interpret." }
+    checks:
+      formal:
+        named: { rule: The value has a name., expr: "self.name != ''", fix: Give the value a name. }
+      semantic:
+        judged: { expectation: The value is sound., evaluator: Any evaluator., combination: { rule: unanimous, cap: 3 } }
+        unjudged: { expectation: The value is useful., evaluator: Any evaluator. }
+  note:
+    purpose: The instance the log of a verification vector records, revises and relies on.
+    types:
+      passage:
+        fields:
+          bytes: { type: digest, required: true, meaning: "The digest of the captured bytes it quotes from." }
+          at: { type: location, required: true, meaning: "Where in those bytes the quote lies." }
+          quote: { type: string, required: true, meaning: "What it quotes, byte for byte." }
+    structure:
+      text: { type: text, required: true, meaning: "What the note says." }
+      about: { type: ref(note), meaning: "A revision of another note, where this note is about that one." }
+      objection: { type: text, meaning: "An objection the revision records." }
+      cites: { type: list(ref(note)), meaning: "The revisions of other notes it rests on." }
+      passage: { type: passage, meaning: "A passage of captured bytes it quotes." }
+    checks:
+      semantic:
+        clear: { expectation: The note says one thing plainly., evaluator: The evaluator the custody profile names., combination: { rule: all-satisfied, cap: 3 } }
+    operations:
+      publish:
+        at: client
+        use: publish
+        effect: "Appends a note that publishing decides, so that an objection it records keeps it out."
+        returns: "A receipt with the note's position, or a refusal naming the failed condition."
+      fetch:
+        at: client
+        effect: "Reads a note, and decides no fact."
+        returns: "The note."
+    uses:
+      recognize:
+        revises: true
+      publish:
+        requires:
+          unopposed:
+            rule: "The note records no objection."
+            expr: "!has(self.objection)"
+      cite:
+        beneficiaries: "[fact.signer]"
+        requires:
+          cited-current:
+            rule: "Every note it cites is recognized and is the current revision of its note."
+            expr: "self.cites.all(c, recognized(c) && current(c).digest() == c.digest())"
+          cited-accepted:
+            rule: "Accepting every note it cites holds, exceptions apart."
+            expr: "self.cites.all(c, holds(c, 'accept'))"
+          cited-permitted:
+            rule: "Accepting every note it cites is permitted, exceptions counted."
+            expr: "self.cites.all(c, permitted(c, 'accept'))"
+      countersign:
+        beneficiaries: "[fact.signer]"
+        requires:
+          may-accept:
+            rule: "Its signer is given the use of accepting notes."
+            expr: "authorized(fact.signer, 'sample/note.uses.accept')"
+          apart:
+            rule: "It is about a note whose signer's reach holds no environment that its own signer's credentials are usable from."
+            expr: "has(self.about) && outside_reach(fact.signer, [self.about.fact().signer])"
+      assess:
+        beneficiaries: "[fact.signer]"
+        requires_satisfied: [clear]
+        requires:
+          context-unopposed:
+            rule: "No finding of the check that took it as context alone is unsatisfied."
+            expr: "findings('sample/note.checks.semantic.clear', fact.revision_digest).all(f, f.content().request.content().candidate.digest() == fact.revision_digest || f.content().result != 'unsatisfied')"
+      quote:
+        beneficiaries: "[fact.signer]"
+        requires:
+          quoted:
+            rule: "The bytes it quotes from are retained, and hold its quote where it says."
+            expr: "has(self.passage) && retained(self.passage.bytes) && quoted(self.passage.bytes, self.passage.at, self.passage.quote)"
+      accept:
+        beneficiaries: "[fact.signer]"
+        let:
+          instance: "has(self.about) ? self.about.fact().instance : fact.instance"
+          revisions: "history(sample.note).filter(r, r.fact().instance == instance)"
+        requires:
+          no-objection:
+            rule: "The current revision of the note it is about, or of its own note where it is about none, records an objection."
+            waivable: true
+            expr: "!revisions.exists(r, has(r.content().objection) && !revisions.exists(s, has(s.fact().expected) && s.fact().expected == r.fact().digest))"
+  remark:
+    purpose: A kind with no recognize use, so that a verification vector can show a fact that no use decides.
+    structure:
+      text: { type: text, required: true, meaning: "What the remark says." }
+    uses:
+      answer:
+        beneficiaries: "[fact.signer]"
+        requires:
+          said:
+            rule: "The remark says something."
+            expr: "self.text != ''"

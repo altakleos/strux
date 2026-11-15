@@ -30,13 +30,16 @@ type fact struct {
 	content      map[string]any // nil where the content is absent or does not read
 	bootstrap    bool
 	trustRootAct bool
-	signer       string // "" while unknown
-	instance     string
-	status       Status
-	failed       []string
-	unknown      []string
-	limits       []string
-	conflict     *Conflict
+	signer       string // "" where it is unknown or absent
+	// signerUnknown is set where the registration that names the signer is undecided, as against
+	// absent, where no registration of the credential is in force.
+	signerUnknown bool
+	instance      string
+	status        Status
+	failed        []string
+	unknown       []string
+	limits        []string
+	conflict      *Conflict
 }
 
 // Conflict is the earlier recognized fact that holds what a later one needed.
@@ -68,8 +71,8 @@ func recognizeCondition(name string) string {
 // decideFacts decides every entry read, in log order: the bootstrap facts first, each at its own
 // position, then every other fact by the conditions of recognize-fact, over what is recognized
 // before it. The chain acts were judged first and keep what that step found.
-func (r *run) decideFacts(universe *format.Universe, packages map[string]string) {
-	r.universe, r.packageOf = universe, packages
+func (r *run) decideFacts(universe *format.Universe) {
+	r.universe, r.universes = universe, []*format.Universe{universe}
 	read := r.judgeRead()
 	r.readResult = read
 	end := int64(r.n) - 1
@@ -95,7 +98,132 @@ func (r *run) decideFacts(universe *format.Universe, packages map[string]string)
 		default:
 			r.decide(f)
 		}
+		if f.status == Recognized && !f.bootstrap && f.kind == kernelPackage+"/configuration" {
+			r.activate(f)
+		}
 	}
+}
+
+// bootstrapFirst is the condition of start that a fact lists where the log's bootstrap fails.
+var bootstrapFirst = kernelPackage + "/verification.uses.start.requires.bootstrap-first"
+
+// bootstrapInPlace says whether the log's first entries are the bootstrap facts the initial trust
+// root lists, in its order.
+func (r *run) bootstrapInPlace() bool {
+	if len(r.entries) < len(r.root.Bootstrap) {
+		return false
+	}
+	for i, id := range r.root.Bootstrap {
+		if e := r.entries[i]; e.Fact == nil || e.Fact.Identity != id {
+			return false
+		}
+	}
+	return true
+}
+
+// failBootstrap decides a log whose first entries are not its bootstrap: nothing in it is
+// recognized, and every fact lists the start condition alone. A fact past the end of the read is
+// indeterminate as on any read.
+func (r *run) failBootstrap() {
+	read := r.judgeRead()
+	r.readResult = read
+	end := int64(r.n) - 1
+	if read.EndsAfter != nil {
+		end = *read.EndsAfter
+	}
+	r.facts = make([]*fact, len(r.entries))
+	for i, e := range r.entries {
+		if e.Fact == nil {
+			continue
+		}
+		f := &fact{pos: i, entry: e, p: e.Fact.Fact}
+		r.facts[i] = f
+		if int64(i) > end {
+			f.status, f.limits = Indeterminate, []string{"read-behind"}
+			continue
+		}
+		f.status, f.failed = NotRecognized, []string{bootstrapFirst}
+	}
+}
+
+// applyBootstrap decides what a bootstrap fact that is not recognized leaves of the rest: that fact
+// lists what it fails, and every other fact lists the start condition alone. A bootstrap fact that
+// is pending or indeterminate is in no vector yet, and this verifier leaves the rest as decided.
+func (r *run) applyBootstrap() {
+	failed := false
+	for _, f := range r.facts[:len(r.root.Bootstrap)] {
+		failed = failed || f.status == NotRecognized
+	}
+	if !failed {
+		return
+	}
+	for _, f := range r.facts {
+		if f == nil || f.bootstrap && f.status == NotRecognized || f.status == Indeterminate && len(f.limits) == 1 && f.limits[0] == "read-behind" {
+			continue
+		}
+		f.status, f.failed, f.unknown, f.limits, f.conflict = NotRecognized, []string{bootstrapFirst}, nil, nil, nil
+	}
+}
+
+// activate gives a recognized configuration the universe of the package revisions it pins, in
+// which every fact that names one of them is decided, so a later configuration changes nothing of
+// how an earlier fact is judged. The configuration was recognized only if they conform together.
+func (r *run) activate(config *fact) {
+	pkgs := map[string]*format.Package{}
+	for _, item := range list(config.content["packages"]) {
+		g := r.factByIdentity(str(mapOf(item)["fact"]), config.pos)
+		if g == nil || g.content == nil {
+			return
+		}
+		parsed, err := format.Parse(r.log.Blobs[str(g.content["bytes"])])
+		if err != nil {
+			return
+		}
+		name := str(g.content["name"])
+		pkgs[name] = format.Build(name, name, parsed)
+	}
+	if u, problems := format.Prepare(pkgs, format.Kernel(kernelPackage)); len(problems) == 0 {
+		r.universe, r.universes = u, append(r.universes, u)
+	}
+}
+
+// universeFor is the universe a fact is decided in: the latest that holds the package revision
+// it names, and otherwise the latest of all.
+func (r *run) universeFor(f *fact) *format.Universe {
+	for i := len(r.universes) - 1; i >= 0; i-- {
+		if p := r.universes[i].Packages[f.pkg]; p != nil && p.Digest == str(f.p["package"]) {
+			return r.universes[i]
+		}
+	}
+	return r.universe
+}
+
+// configurationAt is the content of the configuration in force at a position: the bootstrap's for
+// a bootstrap fact, and otherwise its latest recognized revision before the position, with the
+// revisions after that one that are still pending or indeterminate.
+func (r *run) configurationAt(pos int, bootstrap bool) (map[string]any, []*fact) {
+	var current map[string]any
+	for _, e := range r.entries[:min(len(r.entries), len(r.root.Bootstrap))] {
+		if e.Fact != nil && e.Fact.Fact["kind"] == kernelPackage+"/configuration" {
+			current, _ = r.content(e).(map[string]any)
+		}
+	}
+	if bootstrap {
+		return current, nil
+	}
+	var waiting []*fact
+	for _, g := range r.facts[:min(pos, len(r.facts))] {
+		if g == nil || g.bootstrap || g.kind != kernelPackage+"/configuration" {
+			continue
+		}
+		switch g.status {
+		case Recognized:
+			current, waiting = g.content, nil
+		case Pending, Indeterminate:
+			waiting = append(waiting, g)
+		}
+	}
+	return current, waiting
 }
 
 func (r *run) newFact(i int, e Entry) *fact {
@@ -105,9 +233,9 @@ func (r *run) newFact(i int, e Entry) *fact {
 	if c, ok := r.content(e).(map[string]any); ok {
 		f.content = c
 	}
-	f.trustRootAct = f.bootstrap || f.isChainAct() || f.kind == kernelPackage+"/credential-registration" && f.content != nil && f.content["principal"] == r.root.Owner && f.p["key"] == nil
+	f.trustRootAct = f.bootstrap || f.isChainAct() || f.kind == kernelPackage+"/credential-registration" && f.content != nil && f.content["principal"] == r.rootAt(i).Owner && f.p["key"] == nil
 	if f.trustRootAct {
-		f.signer = r.root.Owner
+		f.signer = r.rootAt(i).Owner
 	}
 	f.instance = e.Fact.Identity
 	if expected := str(f.p["expected"]); expected != "" {
@@ -129,6 +257,10 @@ func (r *run) decideChainAct(f *fact, recognized bool) {
 		return
 	}
 	f.status = NotRecognized
+	if failed, judged := r.chainFailed[f.pos]; judged {
+		f.failed = failed
+		return
+	}
 	if f.p["package"] != r.kernel.digest {
 		f.failed = append(f.failed, recognizeCondition("package-active"))
 	}
@@ -147,25 +279,36 @@ func (r *run) decideChainAct(f *fact, recognized bool) {
 // decide decides a fact by the conditions of recognize-fact, over what is recognized before its
 // position, and gives it its status.
 func (r *run) decide(f *fact) {
+	// Under a package revision the configuration does not activate, nothing the package defines is
+	// decided: neither the structure of its kind nor its deciding use.
+	active := r.packageActive(f)
 	conditions := map[string]outcome{
-		"package-active": r.packageActive(f),
+		"package-active": active,
 		"signature":      r.signature(f),
-		"structure":      r.structureOf(f),
+	}
+	if active.value == "true" {
+		conditions["structure"] = r.structureOf(f)
 	}
 	if !f.trustRootAct {
 		conditions["not-compromised"] = r.notCompromised(f)
 		conditions["not-in-broken-part"] = r.notInBrokenPart(f)
-		conditions["authority"] = r.authority(f)
+		// Under an inactive package, the use an operation of the fact's own kind names is the
+		// package's to say, so the authority it needs is not decided.
+		if active.value == "true" || !strings.HasPrefix(str(f.p["operation"]), f.kind+".operations.") {
+			conditions["authority"] = r.authority(f)
+		}
 		conditions["supply-chain"] = r.supplyChain(f)
 	}
 	if !f.bootstrap {
 		conditions["in-time"] = r.inTime(f)
 	}
 	use, decidingUse := r.decidingUse(f)
-	conditions["deciding-use"] = decidingUse
+	if active.value == "true" {
+		conditions["deciding-use"] = decidingUse
+	}
 	conditions["order"] = r.order(f)
 	var useFailed, useUnknown []string
-	if conditions["structure"].value == "true" && decidingUse.value == "true" {
+	if active.value == "true" && conditions["structure"].value == "true" && decidingUse.value == "true" {
 		var o outcome
 		o, useFailed, useUnknown = r.useConditions(f, use)
 		conditions["conditions"] = o
@@ -221,12 +364,36 @@ func orderedLimits(ls []string) []string {
 // packageActive: the configuration in force at the fact's position activates the package
 // revision it names; for a bootstrap fact, the bootstrap configuration does.
 func (r *run) packageActive(f *fact) outcome {
-	for digest := range r.packageOf {
-		if f.p["package"] == digest {
-			return holds
+	config, waiting := r.configurationAt(f.pos, f.bootstrap)
+	active := r.pins(config, str(f.p["package"]))
+	// A later revision that is still undecided leaves the answer open where it would change it.
+	for _, g := range waiting {
+		if r.pins(g.content, str(f.p["package"])) != active {
+			if g.status == Indeterminate {
+				return limited("indeterminate-fact")
+			}
+			return waits()
 		}
 	}
+	if active {
+		return holds
+	}
 	return fails
+}
+
+// pins reports whether a configuration pins the package revision with a digest.
+func (r *run) pins(config map[string]any, digest string) bool {
+	for _, item := range list(config["packages"]) {
+		for _, e := range r.entries {
+			if e.Fact == nil || e.Fact.Identity != str(mapOf(item)["fact"]) {
+				continue
+			}
+			if c, _ := r.content(e).(map[string]any); c != nil && c["digest"] == digest {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // signature: a trust-root act names no key and has the trust root's threshold of its keys; any
@@ -240,11 +407,14 @@ func (r *run) signature(f *fact) outcome {
 		}
 		return fails
 	}
-	if key == "" || r.root.isKey(key) {
+	if key == "" || r.rootAt(f.pos).isKey(key) {
 		return fails
 	}
 	registration, o := r.registrationOf(key, f.pos)
 	if o.value != "true" {
+		// The signer is derived from the registration in force for the credential: unknown while
+		// that is undecided, and absent where no registration is in force.
+		f.signerUnknown = o.value == "unknown"
 		return o
 	}
 	f.signer = str(registration.content["principal"])
@@ -281,8 +451,13 @@ func (r *run) registrationOf(key string, pos int) (*fact, outcome) {
 }
 
 // inForce: a decision is in force at a position when its fact was recognized before it, it is the
-// current revision of its instance there, and the position's time lies within its validity.
+// current revision of its instance there, no recognized revocation of it precedes the position,
+// the position's time lies within its validity, and the authority it was made under is in force
+// there.
 func (r *run) inForce(g *fact, pos int) outcome {
+	if g.pos >= pos {
+		return fails // a decision is recorded before the position where it is in force
+	}
 	switch g.status {
 	case Recognized:
 	case Pending:
@@ -293,7 +468,7 @@ func (r *run) inForce(g *fact, pos int) outcome {
 		return fails
 	}
 	for _, h := range r.facts[g.pos+1 : pos] {
-		if h != nil && h.p["expected"] == g.entry.Fact.Identity {
+		if h != nil && (h.p["expected"] == g.entry.Fact.Identity || h.revokes(g)) {
 			switch h.status {
 			case Recognized:
 				return fails
@@ -304,7 +479,26 @@ func (r *run) inForce(g *fact, pos int) outcome {
 			}
 		}
 	}
-	return r.withinValidity(g.content, int64(pos))
+	if o := r.withinValidity(g.content, int64(pos)); o.value != "true" {
+		return o
+	}
+	if under, _ := g.p["under"].(map[string]any); under != nil {
+		issuer := r.factByIdentity(str(under["fact"]), g.pos)
+		if issuer == nil {
+			return fails
+		}
+		return r.inForce(issuer, pos)
+	}
+	return holds
+}
+
+// revokes says whether the fact is a revocation of the decision g recorded.
+func (h *fact) revokes(g *fact) bool {
+	if h.kind != kernelPackage+"/revocation" || h.content == nil {
+		return false
+	}
+	target, _ := h.content["revokes"].(map[string]any)
+	return target != nil && target["fact"] == g.entry.Fact.Identity
 }
 
 // withinValidity tests a position's time against a validity: its start by the lower bound alone,
@@ -395,7 +589,7 @@ func (r *run) governing(f *fact) bool {
 }
 
 func (r *run) definition(f *fact) map[string]any {
-	p := r.universe.Packages[f.pkg]
+	p := r.universeFor(f).Packages[f.pkg]
 	if p == nil || p.Defs[f.def] == nil {
 		return nil
 	}
@@ -406,8 +600,14 @@ func (r *run) definition(f *fact) map[string]any {
 // what it ends needs no grant. Any other fact names in under a grant its signer holds, in force at
 // its position, that covers the use deciding it.
 func (r *run) authority(f *fact) outcome {
-	if f.signer == r.root.Owner && f.signer != "" {
+	if f.signer == r.rootAt(f.pos).Owner && f.signer != "" {
 		return holds
+	}
+	if f.kind == kernelPackage+"/revocation" && f.content != nil {
+		target, _ := f.content["revokes"].(map[string]any)
+		if ended := r.factByIdentity(str(target["fact"]), f.pos); ended != nil && f.signer != "" && ended.signer == f.signer {
+			return holds
+		}
 	}
 	under, _ := f.p["under"].(map[string]any)
 	if under == nil {
@@ -420,29 +620,46 @@ func (r *run) authority(f *fact) outcome {
 	if o := r.inForce(grant, f.pos); o.value != "true" {
 		return o
 	}
-	if f.signer == "" {
+	switch {
+	case f.signer == "" && f.signerUnknown:
 		return waits()
-	}
-	if grant.content["principal"] != f.signer {
+	case f.signer == "" || grant.content["principal"] != f.signer:
 		return fails
 	}
-	use, ok := r.decidingUse(f)
-	if ok.value != "true" {
-		return fails
+	// What the grant must cover: the use deciding the fact, for an exception the use it names with
+	// .except, and for a grant every use it covers.
+	var needed []string
+	switch {
+	case f.kind == kernelPackage+"/exception" && f.content != nil:
+		needed = []string{str(f.content["use"]) + ".except"}
+	case f.kind == kernelPackage+"/grant" && f.content != nil:
+		for _, c := range list(f.content["covers"]) {
+			needed = append(needed, str(c))
+		}
+	default:
+		use, ok := r.decidingUse(f)
+		switch {
+		case r.packageActive(f).value != "true" && str(f.p["operation"]) == "":
+			// Nothing the inactive package defines is decided, and the use its kind names is read.
+			use = "recognize"
+		case ok.value != "true":
+			return fails
+		}
+		needed = []string{f.kind + ".uses." + use}
 	}
-	covered := f.kind + ".uses." + use
-	if f.kind == kernelPackage+"/exception" && f.content != nil {
-		covered = str(f.content["use"]) + ".except"
-	}
+	covers := map[string]bool{}
 	for _, c := range list(grant.content["covers"]) {
-		if c == covered {
-			if len(list(grant.content["conditions"])) > 0 {
-				return limited("interpretation")
-			}
-			return holds
+		covers[str(c)] = true
+	}
+	for _, n := range needed {
+		if !covers[n] {
+			return fails
 		}
 	}
-	return fails
+	if len(list(grant.content["conditions"])) > 0 {
+		return limited("interpretation")
+	}
+	return holds
 }
 
 // supplyChain: a component the custody profile names records the configurations it ran, each one
@@ -550,7 +767,7 @@ func (r *run) structureOf(f *fact) outcome {
 	if f.entry.Fact.ContentAbsent {
 		return limited("absent-bytes")
 	}
-	p := r.universe.Packages[f.pkg]
+	p := r.universeFor(f).Packages[f.pkg]
 	if p == nil || p.Defs[f.def] == nil || !p.Defs[f.def].HasStructure() || f.content == nil {
 		return fails
 	}

@@ -15,7 +15,7 @@ func (r *run) useConditions(f *fact, use string) (outcome, []string, []string) {
 	if len(requires) == 0 {
 		return holds, nil, nil
 	}
-	in := format.UseInputs{Self: f.content, Fact: r.envelope(f), Custody: r.custodyAt(f.pos), TrustRoot: r.root.Raw}
+	in := format.UseInputs{Self: f.content, Fact: r.envelope(f), Custody: r.custodyAt(f.pos), TrustRoot: r.rootAt(f.pos).Raw}
 	if f.bootstrap && in.Custody == nil {
 		in.Custody = r.bootstrapCustody
 	}
@@ -24,7 +24,7 @@ func (r *run) useConditions(f *fact, use string) (outcome, []string, []string) {
 			in.Predecessor = &format.Reference{Fact: expected, Digest: str(pred.p["content"])}
 		}
 	}
-	results, err := r.universe.EvaluateUse(f.pkg, f.def, use, in, reader{r: r, pos: f.pos, bootstrap: f.bootstrap})
+	results, err := r.universeFor(f).EvaluateUse(f.pkg, f.def, use, in, reader{r: r, pos: f.pos, bootstrap: f.bootstrap, self: f})
 	if err != nil {
 		return limited("interpretation"), nil, []string{f.kind + ".uses." + use}
 	}
@@ -82,12 +82,13 @@ func (r *run) check(f *fact, path string) outcome {
 	if !ok {
 		return waits()
 	}
-	p := r.universe.Packages[pkg]
+	u := r.universeFor(f)
+	p := u.Packages[pkg]
 	if p == nil || p.Defs[def] == nil {
 		return fails
 	}
 	node := mapOf(mapOf(mapOf(p.Defs[def].Raw["checks"])["formal"])[check])
-	res, problems := r.universe.EvaluateCheck(pkg, def, mapOf(node["let"]), str(node["expr"]), f.content)
+	res, problems := u.EvaluateCheck(pkg, def, mapOf(node["let"]), str(node["expr"]), f.content)
 	if len(problems) > 0 {
 		return limited("interpretation")
 	}
@@ -195,6 +196,7 @@ type reader struct {
 	r         *run
 	pos       int
 	bootstrap bool
+	self      *fact // the fact being decided, whose captured bytes its conditions read
 }
 
 func (x reader) visible(g *fact) (member, possible bool) {

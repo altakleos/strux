@@ -1,0 +1,1 @@
+{"credential":{"public_key":"ed25519:2d881d791076cbf4b2f9d960bb663b39ab6e3aaeeb787e497f4d748e694ed9fd"},"environment":"owner-device","may_sign":["kernel/revocation"],"principal":"owner"}

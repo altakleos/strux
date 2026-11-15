@@ -306,11 +306,9 @@ func TestEveryEntryHasTheStatusTheVectorsState(t *testing.T) {
 				continue
 			}
 			r := prepare(t, l, c, byIdentity)
-			u, pkgs, err := r.bootstrapPackages()
-			if err != nil {
+			if _, err := r.decideLog(); err != nil {
 				t.Fatalf("%s: %v", where, err)
 			}
-			r.decideFacts(u, pkgs)
 			got := r.lists()
 			var recognized []string
 			for _, p := range got.Recognized {
@@ -368,11 +366,9 @@ func TestARelianceIsDecidedAsTheVectorsState(t *testing.T) {
 			}
 			where := name + "/" + c.name
 			r := prepare(t, l, c, byIdentity)
-			u, pkgs, err := r.bootstrapPackages()
-			if err != nil {
+			if _, err := r.decideLog(); err != nil {
 				t.Fatalf("%s: %v", where, err)
 			}
-			r.decideFacts(u, pkgs)
 			input := c.inputs["reliance"].(map[string]any)
 			recorded := input["subject"].(map[string]any)["recorded"].(map[string]any)
 			at := r.n

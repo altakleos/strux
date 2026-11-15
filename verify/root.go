@@ -90,12 +90,21 @@ type kernel struct {
 // the bootstrap facts names package revisions by exact reference, and the one of the kernel
 // package records the digest of its definitions and captures their bytes.
 func (r *run) bootstrapKernel() (*kernel, error) {
+	// The bootstrap facts are found by identity wherever they sit, so that a log whose first entries
+	// are not the bootstrap still has its kernel: that log recognizes nothing, which deciding its
+	// facts says.
+	listed := map[string]bool{}
+	for _, id := range r.root.Bootstrap {
+		listed[id] = true
+	}
 	bootstrap := map[string]Entry{}
-	for i, id := range r.root.Bootstrap {
-		if i >= len(r.entries) || r.entries[i].Fact == nil || r.entries[i].Fact.Identity != id {
-			return nil, fmt.Errorf("the log does not begin with the bootstrap facts the trust root lists")
+	for _, e := range r.entries {
+		if e.Fact != nil && listed[e.Fact.Identity] {
+			bootstrap[e.Fact.Identity] = e
 		}
-		bootstrap[id] = r.entries[i]
+	}
+	if len(bootstrap) < len(listed) {
+		return nil, fmt.Errorf("the log does not hold every bootstrap fact the trust root lists")
 	}
 	for _, e := range bootstrap {
 		if e.Fact.Fact["kind"] != kernelPackage+"/configuration" {
@@ -158,12 +167,10 @@ func list(v any) []any {
 	return l
 }
 
-// bootstrapPackages reads the package revisions the bootstrap configuration pins, checks them
-// together and gives the universe their expressions evaluate in, with each package's name by the
-// digest of its definitions, and the bootstrap's custody profile.
-func (r *run) bootstrapPackages() (*format.Universe, map[string]string, error) {
+// bootstrapPackages reads the package revisions of the bootstrap, checks them together and gives
+// the universe their expressions evaluate in, and the bootstrap's custody profile.
+func (r *run) bootstrapPackages() (*format.Universe, error) {
 	pkgs := map[string]*format.Package{}
-	byDigest := map[string]string{}
 	for i := range r.root.Bootstrap {
 		e := r.entries[i]
 		switch e.Fact.Fact["kind"] {
@@ -175,15 +182,15 @@ func (r *run) bootstrapPackages() (*format.Universe, map[string]string, error) {
 			bytesDigest, _ := content["bytes"].(string)
 			parsed, err := format.Parse(r.log.Blobs[bytesDigest])
 			if err != nil {
-				return nil, nil, fmt.Errorf("the bootstrap's %s definitions: %w", name, err)
+				return nil, fmt.Errorf("the bootstrap's %s definitions: %w", name, err)
 			}
 			p := format.Build(name, name, parsed)
-			pkgs[name], byDigest[p.Digest] = p, name
+			pkgs[name] = p
 		}
 	}
 	u, problems := format.Prepare(pkgs, format.Kernel(kernelPackage))
 	if len(problems) > 0 {
-		return nil, nil, fmt.Errorf("the bootstrap's packages do not conform: %s", problems[0])
+		return nil, fmt.Errorf("the bootstrap's packages do not conform: %s", problems[0])
 	}
-	return u, byDigest, nil
+	return u, nil
 }

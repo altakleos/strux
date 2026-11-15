@@ -1,0 +1,1 @@
+{"credential":{"public_key":"ed25519:84027f136969fb3d644bcadcbf84fceca286907202350c6f5a27ef14dd572d2a"},"environment":"lead-machine","may_sign":["kernel/grant","kernel/credential-registration","sample/note"],"principal":"lead"}

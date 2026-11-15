@@ -1,0 +1,1 @@
+{"credential":{"public_key":"ed25519:5c34fb5fc694bd7b473dcbf8d97917b2280dbab887acd21aab05beb3bf1463c7"},"environment":"member-machine","may_sign":["kernel/grant","sample/note"],"principal":"member"}

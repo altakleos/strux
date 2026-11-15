@@ -1,0 +1,1 @@
+{"credential":{"public_key":"ed25519:371398e8be543ca8e6c7f083c59d68a9c7a064a8041ed21b6f0d2cecfd41d9ee"},"environment":"owner-device","may_sign":["kernel/grant","kernel/exception"],"principal":"owner"}

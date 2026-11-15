@@ -64,6 +64,27 @@ type Reader interface {
 	History(definition string) (revisions []Reference, possible []int)
 	// InForce says whether a referenced revision is a decision in force.
 	InForce(r Reference) Result
+	// Recognized says whether a referenced revision is recognized.
+	Recognized(r Reference) Result
+	// Current gives the latest recognized revision of a referenced revision's instance.
+	Current(r Reference) (Reference, Result)
+	// Authorized says whether authority in force gives a principal a use.
+	Authorized(principal, use string) Result
+	// OutsideReach says whether no credential registered to a principal is usable from an
+	// environment in the reach of any of the principals.
+	OutsideReach(principal string, principals []string) Result
+	// Holds decides a use of a referenced revision without exceptions, and Permitted with the
+	// exceptions in force, each in its own two passes inside the pass the reader reads in.
+	Holds(r Reference, use string) Result
+	Permitted(r Reference, use string) Result
+	// Findings lists the recognized findings of a check, the evaluator's, bound to the revision
+	// with a digest, in log order, with the indexes of those that are possible members; with
+	// candidate set, only those whose request names that revision as its candidate.
+	Findings(check, digest string, candidate bool) (findings []Reference, possible []int)
+	// Retained says whether bytes with a digest are available where state is read, and Quoted
+	// whether a quote occurs at a location of them.
+	Retained(digest string) Result
+	Quoted(digest, location, quote string) Result
 }
 
 // UseInputs are what the conditions of a use read besides the log: the instance, the envelope of
@@ -275,16 +296,87 @@ func (u *Universe) readerFunctions(r Reader) []cel.EnvOption {
 			if !ok {
 				return types.NewErr("not a reference")
 			}
-			switch res := r.InForce(reference); res.Value {
-			case "true":
-				return types.True
-			case "false":
-				return types.False
-			default:
+			return boolOf(r.InForce(reference))
+		}))),
+		cel.Function("recognized", cel.Overload("recognized_ref", []*types.Type{refOfT}, types.BoolType, cel.UnaryBinding(func(v ref.Val) ref.Val {
+			reference, ok := v.(Reference)
+			if !ok {
+				return types.NewErr("not a reference")
+			}
+			return boolOf(r.Recognized(reference))
+		}))),
+		cel.Function("current", cel.Overload("current_ref", []*types.Type{refOfT}, refOfT, cel.UnaryBinding(func(v ref.Val) ref.Val {
+			reference, ok := v.(Reference)
+			if !ok {
+				return types.NewErr("not a reference")
+			}
+			latest, res := r.Current(reference)
+			if res.Value != "true" {
 				return undecided("%s", res.Reason)
 			}
+			return latest
+		}))),
+		cel.Function("authorized", cel.Overload("authorized_string_string", []*types.Type{types.StringType, types.StringType}, types.BoolType, cel.BinaryBinding(func(p, use ref.Val) ref.Val {
+			return boolOf(r.Authorized(string(p.(types.String)), string(use.(types.String))))
+		}))),
+		cel.Function("outside_reach", cel.Overload("outside_reach_string_list", []*types.Type{types.StringType, stringList}, types.BoolType, cel.BinaryBinding(func(p, others ref.Val) ref.Val {
+			native, err := others.ConvertToNative(reflect.TypeFor[[]string]())
+			if err != nil {
+				return types.WrapErr(err)
+			}
+			return boolOf(r.OutsideReach(string(p.(types.String)), native.([]string)))
+		}))),
+		cel.Function("holds", cel.Overload("holds_ref_string", []*types.Type{refOfT, types.StringType}, types.BoolType, cel.BinaryBinding(func(v, use ref.Val) ref.Val {
+			reference, ok := v.(Reference)
+			if !ok {
+				return types.NewErr("not a reference")
+			}
+			return boolOf(r.Holds(reference, string(use.(types.String))))
+		}))),
+		cel.Function("permitted", cel.Overload("permitted_ref_string", []*types.Type{refOfT, types.StringType}, types.BoolType, cel.BinaryBinding(func(v, use ref.Val) ref.Val {
+			reference, ok := v.(Reference)
+			if !ok {
+				return types.NewErr("not a reference")
+			}
+			return boolOf(r.Permitted(reference, string(use.(types.String))))
+		}))),
+		u.findingsBinding("findings", false, r),
+		u.findingsBinding("candidate_findings", true, r),
+		cel.Function("retained", cel.Overload("retained_string", []*types.Type{types.StringType}, types.BoolType, cel.UnaryBinding(func(d ref.Val) ref.Val {
+			return boolOf(r.Retained(string(d.(types.String))))
+		}))),
+		cel.Function("quoted", cel.Overload("quoted_string_string_string", []*types.Type{types.StringType, types.StringType, types.StringType}, types.BoolType, cel.FunctionBinding(func(args ...ref.Val) ref.Val {
+			return boolOf(r.Quoted(string(args[0].(types.String)), string(args[1].(types.String)), string(args[2].(types.String))))
 		}))),
 	}
+}
+
+// findingsBinding binds findings, or candidate_findings, to r, with the overload the universe
+// declares for it.
+func (u *Universe) findingsBinding(name string, candidate bool, r Reader) cel.EnvOption {
+	return cel.Function(name, cel.Overload(name+"_string_string", []*types.Type{types.StringType, types.StringType}, u.findingsList(), cel.BinaryBinding(func(check, digest ref.Val) ref.Val {
+		found, possible := r.Findings(string(check.(types.String)), string(digest.(types.String)), candidate)
+		items := make([]any, len(found))
+		for i, x := range found {
+			items[i] = x
+		}
+		list, err := PossibleList(items, possible)
+		if err != nil {
+			return types.WrapErr(err)
+		}
+		return types.DefaultTypeAdapter.NativeToValue(list)
+	})))
+}
+
+// boolOf gives a result as an expression's value: true, false, or unknown with its reason.
+func boolOf(res Result) ref.Val {
+	switch res.Value {
+	case "true":
+		return types.True
+	case "false":
+		return types.False
+	}
+	return undecided("%s", res.Reason)
 }
 
 // contentValue converts the content of a revision of the named kind into the value an expression
