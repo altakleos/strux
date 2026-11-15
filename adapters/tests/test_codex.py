@@ -70,5 +70,5 @@ def test_a_turn_without_an_answer_gives_other():
 
 def test_a_missing_home_says_how_to_sign_in(monkeypatch, tmp_path):
     monkeypatch.setenv("STRUX_CODEX_HOME", str(tmp_path / "absent"))
-    with pytest.raises(SystemExit, match="codex login"):
+    with pytest.raises(SystemExit, match="mkdir -p -m 700 .* codex login"):
         codex.home()

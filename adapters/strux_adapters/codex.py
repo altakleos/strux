@@ -2,9 +2,10 @@
 
 Codex runs signed in with the user's own ChatGPT plan, from a Codex home of its own, so that none of
 the user's Codex configuration, AGENTS.md, hooks, skills, plugins, memories or MCP servers reaches
-the model. The home is STRUX_CODEX_HOME, or ~/.strux/codex; sign in to it once with
-`CODEX_HOME=~/.strux/codex codex login`. The adapter removes any OpenAI API key from the
-environment it gives Codex, which would otherwise bill that key instead.
+the model. The home is STRUX_CODEX_HOME, or ~/.strux/codex. Codex refuses a home that does not
+exist, so create it and sign in to it once with
+`mkdir -p -m 700 ~/.strux/codex && CODEX_HOME=~/.strux/codex codex login`. The adapter removes any
+OpenAI API key from the environment it gives Codex, which would otherwise bill that key instead.
 
 Codex runs as nothing but a model here: the request's governing text replaces its base
 instructions, with the reminder after it, and the data reaches it as an external message, which
@@ -52,7 +53,10 @@ CONFIG = {
 def home() -> str:
     path = Path(os.environ.get(HOME) or DEFAULT_HOME).expanduser()
     if not path.is_dir():
-        raise SystemExit(f"the Codex home {path} does not exist: sign in to it with CODEX_HOME={path} codex login")
+        raise SystemExit(
+            f"the Codex home {path} does not exist: create it and sign in to it with "
+            f"mkdir -p -m 700 {path} && CODEX_HOME={path} codex login"
+        )
     return str(path)
 
 

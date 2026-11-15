@@ -12,8 +12,9 @@ its standard output, as `strux_adapters/protocol.py` and `evaluate.Adapter` defi
 
 Each runs its service as a model alone: the request's governing text as its instructions, the data
 as the one message, no tools, none of the user's settings, instruction files, plugins or servers,
-an empty working directory, and an answer in the request's schema. Sign in to Codex's own home once
-with `CODEX_HOME=~/.strux/codex codex login`.
+an empty working directory, and an answer in the request's schema. Codex refuses a home that does
+not exist, so create its own home and sign in to it once with
+`mkdir -p -m 700 ~/.strux/codex && CODEX_HOME=~/.strux/codex codex login`.
 
 Run one from the repository's root as `uv run --directory adapters --locked python -m strux_adapters.claude`.
 `make adapters-check` runs ruff and the tests, which stand in for each SDK and sign in nowhere.
