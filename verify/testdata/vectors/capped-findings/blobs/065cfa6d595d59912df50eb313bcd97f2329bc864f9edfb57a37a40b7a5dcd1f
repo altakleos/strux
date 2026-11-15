@@ -1,0 +1,1 @@
+{"credential":{"public_key":"ed25519:2c33fc3b893c5a4c6d5cf3e6ea4edc4f172ceeeffc6e88e90c9d4ce899dc136d"},"environment":"evaluator-machine","may_sign":["kernel/finding"],"principal":"evaluator"}

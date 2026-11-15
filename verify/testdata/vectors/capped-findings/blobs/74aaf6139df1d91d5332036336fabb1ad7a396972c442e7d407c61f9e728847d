@@ -1,0 +1,1 @@
+{"bound_to":["sha256:69a1dd2b0a155677648df455a0abd5c63a1c1a923bcab1fa7902bb78ae12babe"],"check":"sample/note.checks.semantic.clear","evidence":"The draft makes one point.","request":{"digest":"sha256:ab6863c1742165d42dd58abec2fd8062cfbf35a76bed70c09ac373e411ed43e8","fact":"sha256:ff470e15d9cdbab118e494510c0091210e830f53eea7a8f4bdf760a6a2ffc3ba"},"result":"satisfied"}

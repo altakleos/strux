@@ -1,0 +1,1 @@
+{"candidate":{"digest":"sha256:4f42520af7b790fedd5aa8be91ba7048ca3b5f3140cb71a06424bafc7061766f","fact":"sha256:0c2f88a76c8c880909ce572cf4e36f674a0585d164618d022890b3b0ef6627e7"},"checks":["sample/note.checks.semantic.clear"],"context":[],"intended_use":"sample/note.uses.assess"}

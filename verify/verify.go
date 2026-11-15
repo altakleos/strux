@@ -94,11 +94,13 @@ func Verify(l *Log, in Inputs) (*Result, error) {
 		return nil, err
 	}
 	anchors := r.judgeAnchors(in.Anchors)
-	u, pkgs, err := r.bootstrapPackages()
+	inPlace, err := r.decideLog()
 	if err != nil {
 		return nil, err
 	}
-	r.decideFacts(u, pkgs)
+	if !inPlace && in.Reliance != nil {
+		return nil, errors.New("the log does not begin with the bootstrap its trust root lists, and this verifier decides no use on such a log")
+	}
 	res := &Result{Anchors: emptied(anchors), Read: r.readResult, Recognized: []int64{}, NotRecognized: []NotRecognizedFact{}, Pending: []PendingFact{}, Indeterminate: []IndeterminateFact{}, Invalid: []InvalidEntry{}, Limits: []Limit{}}
 	lists := r.lists()
 	res.Recognized = append(res.Recognized, lists.Recognized...)
@@ -137,6 +139,23 @@ func Verify(l *Log, in Inputs) (*Result, error) {
 		res.Reliance = &reliance
 	}
 	return res, nil
+}
+
+// decideLog decides every fact read, once the chain acts and the anchors are judged: a log whose
+// first entries are its bootstrap is decided fact by fact, and one whose first entries are not
+// recognizes nothing. It reports which of the two the log is.
+func (r *run) decideLog() (bool, error) {
+	if !r.bootstrapInPlace() {
+		r.failBootstrap()
+		return false, nil
+	}
+	u, err := r.bootstrapPackages()
+	if err != nil {
+		return true, err
+	}
+	r.decideFacts(u)
+	r.applyBootstrap()
+	return true, nil
 }
 
 func orNone(s []string) []string {

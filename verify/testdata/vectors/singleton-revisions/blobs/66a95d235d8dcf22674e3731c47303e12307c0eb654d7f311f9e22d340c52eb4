@@ -1,0 +1,1 @@
+{"credential":{"public_key":"ed25519:a10c25be05c164bfc2487f1038e299758d10d86b7c7dcadeda24ee5975ccf024"},"environment":"owner-device","may_sign":["kernel/custody-profile","kernel/configuration"],"principal":"owner"}
