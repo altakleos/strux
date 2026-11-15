@@ -72,8 +72,11 @@ const (
 )
 
 // Config is what decides what the evaluator signs, besides the template and the program that
-// assembles the inputs and checks the result.
+// assembles the inputs and checks the result. Backend names how the model is reached, such as
+// "anthropic-api" for the Anthropic Messages API or the name of an adapter, since the same model
+// reached another way runs under other instructions around the prompt.
 type Config struct {
+	Backend   string `json:"backend"`
 	Model     string `json:"model"`
 	Effort    string `json:"effort"`
 	MaxTokens int64  `json:"max_tokens"`
@@ -93,6 +96,8 @@ var TemplateDigest = digest([]byte(template))
 // never mistaken for one of the request.
 func (c Config) valid() error {
 	switch {
+	case c.Backend == "":
+		return errors.New("the configuration names no backend")
 	case c.Model == "":
 		return errors.New("the configuration names no model")
 	case c.MaxTokens < 1:

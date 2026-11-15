@@ -16,15 +16,22 @@ import (
 	"github.com/altakleos/strux/evaluate"
 )
 
-// Model is one model's settings in the suite file.
+// Model is one model's settings in the suite file: how it is reached, which model, its effort and
+// output limit, and, for a backend billed by use, its price.
 type Model struct {
+	Backend   string `yaml:"backend"`
 	Model     string `yaml:"model"`
 	Effort    string `yaml:"effort"`
 	MaxTokens int64  `yaml:"max_tokens"`
+	Price     *Price `yaml:"price"`
 }
 
+// anthropicAPI is the backend that reaches the Anthropic Messages API with an API key, billed by
+// use; every other backend is an adapter the suite names.
+const anthropicAPI = "anthropic-api"
+
 func (m Model) config(program string) evaluate.Config {
-	return evaluate.Config{Model: m.Model, Effort: m.Effort, MaxTokens: m.MaxTokens, Program: program}
+	return evaluate.Config{Backend: m.Backend, Model: m.Model, Effort: m.Effort, MaxTokens: m.MaxTokens, Program: program}
 }
 
 // Technique is one entry of the catalog of attacks.
@@ -57,10 +64,10 @@ type Suite struct {
 	MinInadequate  int     `yaml:"min_inadequate"`
 	MinAdequate    int     `yaml:"min_adequate"`
 
-	Techniques              []Technique      `yaml:"techniques"`
-	AttackerInstructions    string           `yaml:"attacker_instructions"`
-	AdjudicatorInstructions string           `yaml:"adjudicator_instructions"`
-	Prices                  map[string]Price `yaml:"prices"`
+	Techniques              []Technique         `yaml:"techniques"`
+	AttackerInstructions    string              `yaml:"attacker_instructions"`
+	AdjudicatorInstructions string              `yaml:"adjudicator_instructions"`
+	Adapters                map[string][]string `yaml:"adapters"` // each adapter backend's command
 
 	digest string
 }
@@ -80,12 +87,20 @@ func loadSuite(path string) (Suite, error) {
 }
 
 func (s Suite) valid() error {
-	for role, m := range map[string]Model{"evaluator": s.Evaluator, "attacker": s.Attacker, "adjudicator": s.Adjudicator} {
+	for role, m := range s.roles() {
 		if m.Model == "" || m.MaxTokens < 1 {
 			return fmt.Errorf("the %s needs a model and a positive max_tokens", role)
 		}
-		if _, ok := s.Prices[m.Model]; !ok {
-			return fmt.Errorf("the suite gives no price for %s, the %s's model, so its budget cannot be kept", m.Model, role)
+		switch _, adapter := s.Adapters[m.Backend]; {
+		case m.Backend == anthropicAPI && m.Price == nil:
+			return fmt.Errorf("the %s is billed by use and has no price, so its budget cannot be kept", role)
+		case m.Backend != anthropicAPI && !adapter:
+			return fmt.Errorf("the %s's backend %q is neither %s nor an adapter the suite names", role, m.Backend, anthropicAPI)
+		}
+	}
+	for name, cmd := range s.Adapters {
+		if len(cmd) == 0 {
+			return fmt.Errorf("the adapter %s has no command", name)
 		}
 	}
 	switch {
@@ -101,6 +116,21 @@ func (s Suite) valid() error {
 		return errors.New("the suite needs its catalog and the attacker's and the adjudicator's instructions")
 	}
 	return nil
+}
+
+func (s Suite) roles() map[string]Model {
+	return map[string]Model{"evaluator": s.Evaluator, "attacker": s.Attacker, "adjudicator": s.Adjudicator}
+}
+
+// prices is each billed backend's price, by backend and model, for the meter.
+func (s Suite) prices() map[string]Price {
+	p := map[string]Price{}
+	for _, m := range s.roles() {
+		if m.Price != nil {
+			p[m.Backend+"/"+m.Model] = *m.Price
+		}
+	}
+	return p
 }
 
 // Case is one bounded review of the set, with its label and the key that says why it has it.
