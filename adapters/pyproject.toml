@@ -1,0 +1,22 @@
+[project]
+name = "strux-adapters"
+version = "0.0.0"
+description = "Programs through which the strux evaluator reaches a model service, signed in with the user's own plan."
+requires-python = ">=3.12,<3.14"
+dependencies = [
+  "claude-agent-sdk",
+  "openai-codex",
+]
+
+[dependency-groups]
+dev = ["pytest", "ruff"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]

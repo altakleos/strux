@@ -36,19 +36,23 @@ var stages = []string{"confirm", "baseline", "attack", "denial", "verdict"}
 
 var errBudget = errors.New("the run reached its budget")
 
-// Meter keeps what the run has spent, at the suite's prices, and stops it at its limit. The output
-// directory keeps it in cost.json, so the limit holds across the invocations of one run; calls in
-// flight when it is reached still complete.
+// Meter keeps what the run has spent, at the suite's prices, and the calls it has made, and stops
+// it at either limit; a limit of 0 sets none. The output directory keeps it in cost.json, so the
+// limits hold across the invocations of one run; calls in flight when one is reached still
+// complete. A backend with no price, such as an adapter signed in with a plan, costs nothing here
+// and counts only as calls.
 type Meter struct {
-	mu     sync.Mutex
-	prices map[string]Price
-	limit  float64
-	Spent  float64                   `json:"spent"`
-	Tokens map[string]evaluate.Usage `json:"tokens"`
+	mu       sync.Mutex
+	prices   map[string]Price
+	limit    float64
+	maxCalls int
+	Spent    float64                   `json:"spent"`
+	Calls    int                       `json:"calls"`
+	Tokens   map[string]evaluate.Usage `json:"tokens"`
 }
 
-func newMeter(prices map[string]Price, limit float64) *Meter {
-	return &Meter{prices: prices, limit: limit, Tokens: map[string]evaluate.Usage{}}
+func newMeter(prices map[string]Price, limit float64, maxCalls int) *Meter {
+	return &Meter{prices: prices, limit: limit, maxCalls: maxCalls, Tokens: map[string]evaluate.Usage{}}
 }
 
 // resume adds what earlier invocations of the run spent, as cost.json keeps it.
@@ -58,7 +62,7 @@ func (r *Runner) resume() error {
 	if err != nil || !ok {
 		return err
 	}
-	r.Meter.Spent = kept.Spent
+	r.Meter.Spent, r.Meter.Calls = kept.Spent, kept.Calls
 	for model, u := range kept.Tokens {
 		r.Meter.Tokens[model] = u
 	}
@@ -68,15 +72,17 @@ func (r *Runner) resume() error {
 func (m *Meter) open() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.Spent >= m.limit {
+	if (m.limit > 0 && m.Spent >= m.limit) || (m.maxCalls > 0 && m.Calls >= m.maxCalls) {
 		return errBudget
 	}
+	m.Calls++
 	return nil
 }
 
-func (m *Meter) charge(model string, u evaluate.Usage) {
+func (m *Meter) charge(c evaluate.Config, u evaluate.Usage) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	model := c.Backend + "/" + c.Model
 	p := m.prices[model]
 	m.Spent += (float64(u.InputTokens)+1.25*float64(u.CacheWriteTokens)+0.1*float64(u.CacheReadTokens))*p.Input/1e6 +
 		float64(u.OutputTokens)*p.Output/1e6
@@ -96,7 +102,7 @@ func (m metered) Judge(ctx context.Context, c evaluate.Config, p evaluate.Prompt
 		return evaluate.Response{}, err
 	}
 	resp, err := m.r.Model.Judge(ctx, c, p)
-	m.r.Meter.charge(c.Model, resp.Usage)
+	m.r.Meter.charge(c, resp.Usage)
 	return resp, err
 }
 

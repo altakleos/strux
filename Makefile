@@ -13,10 +13,10 @@ tool_modules := $(patsubst %/go.mod,%,$(wildcard tools/*/go.mod))
 # A go.work file in a parent directory would put go in workspace mode, which rejects -modfile.
 export GOWORK := off
 
-.PHONY: check tidy lint test vuln workflows release-check evals-check
+.PHONY: check tidy lint test vuln workflows release-check evals-check adapters-check
 
 check: tidy lint test vuln workflows release-check
-	@if command -v uv >/dev/null; then $(MAKE) evals-check; \
+	@if command -v uv >/dev/null; then $(MAKE) evals-check adapters-check; \
 	else echo "make check skipped evals-check, which needs uv; CI runs it, so install uv and run make evals-check too"; fi
 
 # go.mod and go.sum are tidy, and every downloaded module matches go.sum.
@@ -53,3 +53,10 @@ evals-check:
 	@command -v uv >/dev/null || { echo "make evals-check needs uv"; exit 1; }
 	cd evals && uv run --locked ruff check . && uv run --locked ruff format --check .
 	cd evals && uv run --locked pytest
+
+# The adapters through which the evaluator reaches a model service signed in with the user's plan:
+# ruff, then pytest, with each SDK stood in for, so it signs in nowhere and costs nothing.
+adapters-check:
+	@command -v uv >/dev/null || { echo "make adapters-check needs uv"; exit 1; }
+	cd adapters && uv run --locked ruff check . && uv run --locked ruff format --check .
+	cd adapters && uv run --locked pytest

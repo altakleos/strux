@@ -47,7 +47,7 @@ func request() Request {
 	}
 }
 
-var config = Config{Model: "m", Effort: "medium", MaxTokens: 1000}
+var config = Config{Backend: "scripted", Model: "m", Effort: "medium", MaxTokens: 1000}
 
 func fixed(tag string) func() (string, error) { return func() (string, error) { return tag, nil } }
 
@@ -251,6 +251,7 @@ func TestARequestOrConfigurationItCannotUseIsRefused(t *testing.T) {
 		"no digest":           func(r *Request, _ *Config) { r.Context[1].Digest = "" },
 		"a digest with text":  func(r *Request, _ *Config) { r.Context[1].Digest = dg("x") + "\nTag: X" },
 		"not utf-8":           func(r *Request, _ *Config) { r.Context[1].Text = "\xff" },
+		"no backend":          func(_ *Request, c *Config) { c.Backend = "" },
 		"no model":            func(_ *Request, c *Config) { c.Model = "" },
 		"no output limit":     func(_ *Request, c *Config) { c.MaxTokens = 0 },
 		"another effort":      func(_ *Request, c *Config) { c.Effort = "medum" },
@@ -272,6 +273,7 @@ func TestTheConfigurationDigestCoversEachSettingAndTheTemplate(t *testing.T) {
 		{Model: "m", Effort: "high", MaxTokens: 1000, Program: "v1"},
 		{Model: "m", Effort: "medium", MaxTokens: 2000, Program: "v1"},
 		{Model: "m", Effort: "medium", MaxTokens: 1000, Program: "v2"},
+		{Backend: "another", Model: "m", Effort: "medium", MaxTokens: 1000, Program: "v1"},
 	} {
 		if seen[c.Digest()] {
 			t.Errorf("%+v shares a digest", c)

@@ -18,11 +18,15 @@
 // Each case's result of each stage is kept in its own file under the output directory, so a run
 // that stops resumes where it stopped. The log names cases and results and no content.
 //
-// Usage: go run ./internal/cmd/injection-suite -suite FILE -cases DIR -out DIR -max-cost DOLLARS
-// [-stage all|confirm|baseline|attack|denial|verdict] [-workers N] [-dev]
+// Usage: go run ./internal/cmd/injection-suite -suite FILE -cases DIR -out DIR
+// [-max-cost DOLLARS] [-max-calls N] [-stage all|confirm|baseline|attack|denial|verdict]
+// [-workers N] [-dev]
 //
-// It reaches the models through the Anthropic API, with the credentials the SDK finds, and costs
-// money; -max-cost stops it, give or take the calls in flight when the limit is reached.
+// Each model of the suite is reached through its backend: an adapter program the suite names, such
+// as one signed in with the user's own plan, or the Anthropic API with the credentials its SDK
+// finds, which bills by use. -max-cost stops the run at a spend, and -max-calls at a number of model
+// calls, give or take the calls in flight; at least one limit is required. Run it from the
+// repository's root, where the suite's adapter commands find the adapters project.
 package main
 
 import (
@@ -45,20 +49,21 @@ func main() {
 	out := flag.String("out", "", "the directory for results")
 	stage := flag.String("stage", "all", "the stage to run: all, confirm, baseline, attack, denial or verdict")
 	workers := flag.Int("workers", 4, "cases run at once")
-	maxCost := flag.Float64("max-cost", 0, "the most, in dollars, the run may spend")
+	maxCost := flag.Float64("max-cost", 0, "the most, in dollars, the run may spend on billed backends; 0 sets no limit")
+	maxCalls := flag.Int("max-calls", 0, "the most model calls the run may make; 0 sets no limit")
 	dev := flag.Bool("dev", false, "allow a build with changes git does not hold, whose summary then decides nothing")
 	flag.Parse()
-	if *suite == "" || *cases == "" || *out == "" || *maxCost <= 0 || flag.NArg() != 0 {
+	if *suite == "" || *cases == "" || *out == "" || (*maxCost <= 0 && *maxCalls <= 0) || flag.NArg() != 0 {
 		flag.Usage()
 		os.Exit(2)
 	}
-	if err := run(*suite, *cases, *out, *stage, *workers, *maxCost, *dev); err != nil {
+	if err := run(*suite, *cases, *out, *stage, *workers, *maxCost, *maxCalls, *dev); err != nil {
 		fmt.Fprintln(os.Stderr, "injection-suite:", err)
 		os.Exit(1)
 	}
 }
 
-func run(suitePath, casesDir, out, stage string, workers int, maxCost float64, dev bool) error {
+func run(suitePath, casesDir, out, stage string, workers int, maxCost float64, maxCalls int, dev bool) error {
 	s, err := loadSuite(suitePath)
 	if err != nil {
 		return err
@@ -73,15 +78,15 @@ func run(suitePath, casesDir, out, stage string, workers int, maxCost float64, d
 	}
 	r := &Runner{
 		Suite: s, Cases: cs, Set: set, Out: out,
-		Model:   evaluate.Anthropic{Client: anthropic.NewClient(option.WithMaxRetries(6))},
+		Model:   backends(s),
 		Program: v.Version + "@" + v.Commit,
 		Dev:     dev || v.Modified,
 		Workers: workers,
-		Meter:   newMeter(s.Prices, maxCost),
+		Meter:   newMeter(s.prices(), maxCost, maxCalls),
 		Log:     os.Stderr,
 	}
 	summary, err := r.Run(context.Background(), stage)
-	fmt.Fprintf(os.Stderr, "spent $%.2f\n", r.Meter.Spent)
+	fmt.Fprintf(os.Stderr, "spent $%.2f in %d model calls\n", r.Meter.Spent, r.Meter.Calls)
 	if err != nil {
 		return err
 	}
@@ -90,4 +95,30 @@ func run(suitePath, casesDir, out, stage string, workers int, maxCost float64, d
 		fmt.Println(string(b))
 	}
 	return nil
+}
+
+// router sends each call to the model of the backend its configuration names.
+type router map[string]evaluate.Model
+
+func (r router) Judge(ctx context.Context, c evaluate.Config, p evaluate.Prompt) (evaluate.Response, error) {
+	m, ok := r[c.Backend]
+	if !ok {
+		return evaluate.Response{}, fmt.Errorf("no backend %q", c.Backend)
+	}
+	return m.Judge(ctx, c, p)
+}
+
+// backends is the suite's backends: each adapter it names, and the Anthropic API only when a role
+// uses it, so that a suite of adapters needs no API key.
+func backends(s Suite) router {
+	r := router{}
+	for name, cmd := range s.Adapters {
+		r[name] = evaluate.Adapter{Command: cmd}
+	}
+	for _, m := range s.roles() {
+		if m.Backend == anthropicAPI {
+			r[anthropicAPI] = evaluate.Anthropic{Client: anthropic.NewClient(option.WithMaxRetries(6))}
+		}
+	}
+	return r
 }
