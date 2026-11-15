@@ -72,15 +72,18 @@ func rejected(status int) bool {
 	return status == http.StatusBadRequest || status == http.StatusRequestEntityTooLarge || status == http.StatusUnprocessableEntity
 }
 
+// params is the request sent for a prompt. A prompt without a reminder sends no system message
+// after the data.
 func params(c Config, p Prompt) anthropic.MessageNewParams {
+	messages := []anthropic.MessageParam{anthropic.NewUserMessage(anthropic.NewTextBlock(p.Data))}
+	if p.Reminder != "" {
+		messages = append(messages, anthropic.MessageParam{OfSystem: &anthropic.SystemMessageParam{Content: []anthropic.TextBlockParam{{Text: p.Reminder}}}})
+	}
 	return anthropic.MessageNewParams{
 		Model:     c.Model,
 		MaxTokens: c.MaxTokens,
 		System:    []anthropic.TextBlockParam{{Text: p.System}},
-		Messages: []anthropic.MessageParam{
-			anthropic.NewUserMessage(anthropic.NewTextBlock(p.Data)),
-			{OfSystem: &anthropic.SystemMessageParam{Content: []anthropic.TextBlockParam{{Text: p.Reminder}}}},
-		},
+		Messages:  messages,
 		OutputConfig: anthropic.OutputConfigParam{
 			Effort: anthropic.OutputConfigEffort(c.Effort),
 			Format: anthropic.JSONOutputFormatParam{Schema: p.Schema},

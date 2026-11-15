@@ -83,6 +83,9 @@ type Config struct {
 //go:embed template.txt
 var template string
 
+// Template is the template this program gives the judging model, ahead of each request.
+func Template() string { return template }
+
 // TemplateDigest is the digest of the template this program gives the judging model.
 var TemplateDigest = digest([]byte(template))
 
@@ -171,7 +174,7 @@ type Evaluator struct {
 // Evaluate answers the request. It returns an error for a request it cannot evaluate, and when the
 // model returned no response; any response gives a finding.
 func (e Evaluator) Evaluate(ctx context.Context, r Request) (Outcome, error) {
-	if err := r.valid(); err != nil {
+	if err := r.Valid(); err != nil {
 		return Outcome{}, err
 	}
 	if err := e.Config.valid(); err != nil {
@@ -194,8 +197,17 @@ func (e Evaluator) Evaluate(ctx context.Context, r Request) (Outcome, error) {
 	if err != nil {
 		return Outcome{}, err
 	}
-	out.Raw, out.Usage = resp.Text, resp.Usage
+	return Settle(r, tag, resp, out.Configuration), nil
+}
+
+// Settle is the checking step on its own: it turns the judging model's response to a valid request,
+// whose data was marked with the tag, into the outcome, with the finding the evaluator would sign.
+// Evaluate calls it; a caller that assembled a prompt of its own, to compare it with this one, calls
+// it with the tag it used, or none.
+func Settle(r Request, tag string, resp Response, configuration string) Outcome {
+	out := Outcome{Raw: resp.Text, Usage: resp.Usage, Configuration: configuration}
 	var j Judgment
+	var err error
 	switch resp.Stop {
 	case StopDone:
 		j, err = check(r.inputs(), tag, resp.Text)
@@ -209,11 +221,11 @@ func (e Evaluator) Evaluate(ctx context.Context, r Request) (Outcome, error) {
 		err = errors.New("the judging model stopped without a result")
 	}
 	if err != nil {
-		return out.refuse(r, err.Error()), nil
+		return out.refuse(r, err.Error())
 	}
 	out.Judgment = &j
 	out.Finding = finding(r, j)
-	return out, nil
+	return out
 }
 
 // refuse makes the unknown finding for a request no result was established for.
@@ -258,7 +270,8 @@ func (r Request) inputs() []Input {
 	return append([]Input{r.Candidate}, r.Context...)
 }
 
-func (r Request) valid() error {
+// Valid reports whether the evaluator can evaluate the request.
+func (r Request) Valid() error {
 	switch {
 	case r.ID == "":
 		return errors.New("the request has no identity")

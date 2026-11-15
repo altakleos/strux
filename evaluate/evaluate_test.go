@@ -389,3 +389,29 @@ func TestTheAnthropicModelReadsWhatTheAPIReturns(t *testing.T) {
 		})
 	}
 }
+
+func TestAPromptWithoutAReminderSendsNoSystemMessage(t *testing.T) {
+	b, err := json.Marshal(params(config, Prompt{System: "s", Data: "d", Schema: ResultSchema()}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sent struct {
+		Messages []struct {
+			Role string `json:"role"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal(b, &sent); err != nil {
+		t.Fatal(err)
+	}
+	if len(sent.Messages) != 1 || sent.Messages[0].Role != "user" {
+		t.Errorf("messages = %+v", sent.Messages)
+	}
+}
+
+func TestSettleChecksAResponseToAPromptAssembledElsewhere(t *testing.T) {
+	r := request()
+	out := Settle(r, "", judged(`{"result":"unsatisfied","evidence":[{"input":1,"first_line":2,"last_line":2,"quote":"Section two has a gap."}],"reasoning":"r"}`), "sha256:c")
+	if out.Refused != "" || out.Finding.Result != Unsatisfied || out.Configuration != "sha256:c" {
+		t.Errorf("outcome = %+v", out)
+	}
+}
