@@ -35,6 +35,7 @@ def test_claude_code_runs_as_a_model_alone():
     assert o.setting_sources == [] and o.strict_mcp_config and o.mcp_servers == {}
     assert o.model == "m" and o.effort == "low" and o.cwd == "/tmp/empty"
     assert o.output_format == {"type": "json_schema", "schema": {"type": "object"}}
+    assert o.verbatim_prompts and o.env == {"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1"}
 
 
 def test_the_data_is_the_one_user_message(monkeypatch):
@@ -84,6 +85,15 @@ def test_an_sdk_failure_is_no_response(monkeypatch):
     monkeypatch.setattr(claude, "query", failing)
     with pytest.raises(NoResponse):
         claude.judge(request())
+
+
+def test_an_error_result_the_sdk_raises_after_gives_its_stop(monkeypatch):
+    async def rejecting(*, prompt, options):
+        yield result(is_error=True, api_error_status=400)
+        raise ClaudeSDKError("Claude Code returned an error result: Prompt is too long")
+
+    monkeypatch.setattr(claude, "query", rejecting)
+    assert claude.judge(request()).stop == "rejected"
 
 
 def test_no_api_key_reaches_claude_code(monkeypatch):

@@ -5,9 +5,13 @@ own Claude plan. The adapter removes any API key from its environment before it 
 which would otherwise bill that key instead.
 
 Claude Code runs as nothing but a model here: the request's governing text replaces its system
-prompt, with the reminder after it, and the data is the one user message. It has no tools, reads
-no settings, CLAUDE.md, MCP server, skill or plugin, and runs in an empty directory of its own. Its
-answer takes the schema's form. The output limit is Claude Code's own.
+prompt, with the reminder after it, and the data is the one user message, delivered as written, so
+that a path or a command in it is text and never makes Claude Code read a file or run a command. It
+has no tools, reads no settings, CLAUDE.md, MCP server, skill or plugin, sends nothing beyond the
+request, which also stops it asking the model to title the session from the data, and runs in an
+empty directory of its own. Its answer takes the schema's form. Claude Code still adds a line naming
+the Agent SDK before the system prompt, a note of its environment after the data, and the tool
+through which the model returns the answer. The output limit is Claude Code's own.
 
 Usage: python -m strux_adapters.claude < request.json
 """
@@ -30,6 +34,9 @@ API_CREDENTIALS = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")
 # HTTP statuses with which the API refuses a request for what it holds, such as inputs too long.
 REJECTED = {400, 413, 422}
 
+# Claude Code's own traffic is off: telemetry, updates and the request that titles the session.
+ENV = {"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1"}
+
 # Turns Claude Code may take: one to answer, and others to retry an answer outside the schema.
 MAX_TURNS = 3
 
@@ -48,6 +55,8 @@ def options(request: Request, cwd: str) -> ClaudeAgentOptions:
         model=request.model,
         effort=request.effort or None,  # type: ignore[arg-type]
         output_format={"type": "json_schema", "schema": request.schema},
+        verbatim_prompts=True,
+        env=ENV,
         max_turns=MAX_TURNS,
         cwd=cwd,
     )
@@ -81,9 +90,15 @@ def response(result: ResultMessage | None) -> Response:
 
 async def ask(request: Request, cwd: str) -> Response:
     result = None
-    async for message in query(prompt=request.data, options=options(request, cwd)):
-        if isinstance(message, ResultMessage):
-            result = message
+    try:
+        async for message in query(prompt=request.data, options=options(request, cwd)):
+            if isinstance(message, ResultMessage):
+                result = message
+    except ClaudeSDKError:
+        # The SDK raises after a result that is an error, such as the API's refusal of a request
+        # for what it holds; the result says which.
+        if result is None:
+            raise
     return response(result)
 
 
