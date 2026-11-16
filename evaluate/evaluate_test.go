@@ -184,6 +184,9 @@ func TestAResultOutsideTheRequestBecomesUnknown(t *testing.T) {
 		"lines out of range":    {`{"result":"satisfied","evidence":[` + cite(1, 2, 3, "gap") + `],"reasoning":"r"}`, "lines 2 to 3 of input 1, which has 2"},
 		"quote not in lines":    {`{"result":"satisfied","evidence":[` + cite(1, 1, 1, "Section two") + `],"reasoning":"r"}`, "do not hold"},
 		"quote within a word":   {`{"result":"satisfied","evidence":[` + cite(1, 1, 1, "ection one is fin") + `],"reasoning":"r"}`, "do not hold"},
+		"pieces out of order":   {`{"result":"satisfied","evidence":[` + cite(1, 1, 2, "a gap ... Section one") + `],"reasoning":"r"}`, "do not hold"},
+		"a piece not in lines":  {`{"result":"satisfied","evidence":[` + cite(1, 1, 2, "Section one … has no gap") + `],"reasoning":"r"}`, "do not hold"},
+		"a piece within a word": {`{"result":"satisfied","evidence":[` + cite(1, 1, 2, "Section one ... ap.") + `],"reasoning":"r"}`, "do not hold"},
 		"quote of punctuation":  {`{"result":"satisfied","evidence":[` + cite(1, 1, 1, " . ") + `],"reasoning":"r"}`, "no letter or digit"},
 		"quote too long":        {`{"result":"unknown","evidence":[` + cite(1, 1, 1, strings.Repeat("x", maxQuote+1)) + `],"reasoning":"r"}`, "more than 600 characters"},
 		"too many citations":    {`{"result":"unknown","evidence":[` + many + `],"reasoning":"r"}`, "more than 32"},
@@ -202,6 +205,23 @@ func TestAResultOutsideTheRequestBecomesUnknown(t *testing.T) {
 				t.Errorf("finding = %+v", f)
 			}
 		})
+	}
+}
+
+func TestAQuoteMayUndoEscapesAndLeaveTextOut(t *testing.T) {
+	r := request()
+	r.Candidate.Text = "statement: \"the field \\\"next_page\\\" is never read\"\nSection two has a gap, and section three is not read.\n"
+	for _, quote := range []string{
+		`the field "next_page" is never read`,
+		`statement: "the field ... is never read"`,
+		`Section two has a gap … section three is not read.`,
+		`Section two [...] is not read`,
+	} {
+		raw, _ := json.Marshal(map[string]any{"result": "unsatisfied", "reasoning": "r",
+			"evidence": []Citation{{Input: 1, FirstLine: 1, LastLine: 2, Quote: quote}}})
+		if out, _ := evaluate(t, r, judged(string(raw))); out.Refused != "" {
+			t.Errorf("%s: refused: %s", quote, out.Refused)
+		}
 	}
 }
 

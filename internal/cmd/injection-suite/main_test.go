@@ -9,6 +9,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -45,6 +46,9 @@ func (a *actors) Judge(_ context.Context, c evaluate.Config, p evaluate.Prompt) 
 	case "adjudicator":
 		if strings.Contains(p.Data, "still carries") {
 			return done(`{"present":true,"reasoning":"r"}`)
+		}
+		if isReview(p) {
+			return done(`{"meets":true,"reasoning":"r"}`)
 		}
 		return done(`{"confirmed":true,"reasoning":"r"}`)
 	}
@@ -118,8 +122,9 @@ func TestARunMeasuresBreaksAndDecides(t *testing.T) {
 	if s.Verdict.Result != "fail" || !strings.Contains(s.Verdict.Reasons[0], "break rate 1.000") {
 		t.Errorf("verdict = %+v", s.Verdict)
 	}
-	// One attempt per technique and two adaptive queries, for each of the two attacked cases.
-	if m.calls["attacker"] != 6 || m.calls["adjudicator"] != 3 {
+	// One attempt per technique and two adaptive queries, for each of the two attacked cases; for the
+	// adjudicator, a confirmation of each case, a review of the adequate one, and the check of a break.
+	if m.calls["attacker"] != 6 || m.calls["adjudicator"] != 4 {
 		t.Errorf("calls = %v", m.calls)
 	}
 	if s.Cost.Spent <= 0 || s.Set == "" || s.Suite != "" && s.Configuration == "" {
@@ -389,6 +394,9 @@ func (s *syncWriter) Write(p []byte) (int, error) {
 type doubting struct{ *actors }
 
 func (d *doubting) Judge(ctx context.Context, c evaluate.Config, p evaluate.Prompt) (evaluate.Response, error) {
+	if c.Model == "adjudicator" && isReview(p) {
+		return evaluate.Response{Text: `{"meets":false,"reasoning":"r"}`, Stop: evaluate.StopDone}, nil
+	}
 	if c.Model == "adjudicator" {
 		return evaluate.Response{Text: `{"confirmed":false,"reasoning":"r"}`, Stop: evaluate.StopDone}, nil
 	}
@@ -456,5 +464,62 @@ func TestACallStillWithoutAResponseWhenItsWaitIsSpentFails(t *testing.T) {
 		if _, err := r.Run(context.Background(), "all"); !errors.Is(err, evaluate.ErrNoResponse) {
 			t.Errorf("wait %s: err = %v", wait, err)
 		}
+	}
+}
+
+// isReview reports whether a prompt asks the adjudicator to review a candidate on its own merits.
+func isReview(p evaluate.Prompt) bool { return strings.Contains(p.Data, reviewTask) }
+
+// faulting finds fault with every candidate it reviews on its own merits, and records each
+// adjudicator prompt.
+type faulting struct {
+	*actors
+	mu   sync.Mutex
+	seen []evaluate.Prompt
+}
+
+func (f *faulting) Judge(ctx context.Context, c evaluate.Config, p evaluate.Prompt) (evaluate.Response, error) {
+	if c.Model == "adjudicator" {
+		f.mu.Lock()
+		f.seen = append(f.seen, p)
+		f.mu.Unlock()
+		if isReview(p) {
+			return evaluate.Response{Text: `{"meets":false,"reasoning":"It leaves a concern out."}`, Stop: evaluate.StopDone}, nil
+		}
+	}
+	return f.actors.Judge(ctx, c, p)
+}
+
+func TestAnAdequateCaseItsReviewFaultsIsUnconfirmed(t *testing.T) {
+	m := &faulting{actors: &actors{calls: map[string]int{}, plan: payloadPlan}}
+	r := newRunner(t, m, 100)
+	s, err := r.Run(context.Background(), "all")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(s.Measures.Unconfirmed, []string{"good"}) || s.Measures.Inadequate != 1 || s.Measures.Adequate != 0 {
+		t.Errorf("measures = %+v", s.Measures)
+	}
+	var reviews, keyed int
+	for _, p := range m.seen {
+		switch {
+		case isReview(p):
+			reviews++
+			if strings.Contains(p.Data, "## Key") || strings.Contains(p.Data, "## Label") || strings.Contains(p.Data, "why") {
+				t.Errorf("a review was given the label or the key:\n%s", p.Data)
+			}
+			if !strings.Contains(p.Data, "ADEQUATE") {
+				t.Error("the review was not given the adequate case")
+			}
+		case strings.Contains(p.Data, "Confirm the label"):
+			keyed++
+		}
+	}
+	if reviews != 1 || keyed != 1 {
+		t.Errorf("%d reviews and %d confirmations with the key, want one review of the adequate case and one confirmation of the other", reviews, keyed)
+	}
+	var conf Confirmation
+	if ok, err := r.load("confirm", "good", &conf); !ok || err != nil || conf.Confirmed || conf.Review == nil || conf.Review.Meets {
+		t.Errorf("the adequate case's confirmation is %+v (%v)", conf, err)
 	}
 }
