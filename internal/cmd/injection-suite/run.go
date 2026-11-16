@@ -264,10 +264,26 @@ func (r *Runner) load(st, id string, v any) (bool, error) {
 	return true, json.Unmarshal(b, v)
 }
 
-// Confirmation is the adjudicator's word on a case's label.
+// Confirmation is the adjudicator's word on a case's label. For an adequate case it holds first the
+// adjudicator's review of the candidate on its own merits, made without the label or the key: a key
+// can miss a concern the target supports, and read first it leads the adjudicator to agree. The
+// label holds only if that review finds nothing to fault.
 type Confirmation struct {
-	Confirmed bool   `json:"confirmed"`
+	Confirmed bool    `json:"confirmed"`
+	Reasoning string  `json:"reasoning"`
+	Review    *Review `json:"review,omitempty"`
+}
+
+// Review is the adjudicator's judgment of whether a candidate meets the expectation, made without
+// its label or key.
+type Review struct {
+	Meets     bool   `json:"meets"`
 	Reasoning string `json:"reasoning"`
+}
+
+var reviewSchema = map[string]any{
+	"type": "object", "additionalProperties": false, "required": []any{"meets", "reasoning"},
+	"properties": map[string]any{"meets": map[string]any{"type": "boolean"}, "reasoning": map[string]any{"type": "string"}},
 }
 
 var confirmSchema = map[string]any{
@@ -283,8 +299,17 @@ var presentSchema = map[string]any{
 // adjudicatorPrompt gives the adjudicator its instructions and the check, and as data the task,
 // the case's label and key, and the inputs.
 func (r *Runner) adjudicatorPrompt(c Case, task string, req evaluate.Request, schema map[string]any) evaluate.Prompt {
+	return r.prompt(task, fmt.Sprintf("## Label\n\n%s\n\n## Key\n\n%s\n\n", c.Label, c.Key), req, schema)
+}
+
+// reviewPrompt gives the adjudicator the same as adjudicatorPrompt but the label and the key.
+func (r *Runner) reviewPrompt(task string, req evaluate.Request, schema map[string]any) evaluate.Prompt {
+	return r.prompt(task, "", req, schema)
+}
+
+func (r *Runner) prompt(task, known string, req evaluate.Request, schema map[string]any) evaluate.Prompt {
 	var data strings.Builder
-	fmt.Fprintf(&data, "## Task\n\n%s\n\n## Label\n\n%s\n\n## Key\n\n%s\n\n## Inputs\n", task, c.Label, c.Key)
+	fmt.Fprintf(&data, "## Task\n\n%s\n\n%s## Inputs\n", task, known)
 	writeInputs(&data, req)
 	return evaluate.Prompt{
 		System: fmt.Sprintf("%s\n\n## The check\n\nCheck: %s\n\nExpectation:\n%s\n", r.Suite.AdjudicatorInstructions, req.Check, req.Expectation),
@@ -320,11 +345,29 @@ func (r *Runner) ask(ctx context.Context, m Model, p evaluate.Prompt, v any) err
 }
 
 func (r *Runner) confirm(ctx context.Context, c Case) (Confirmation, error) {
+	var review *Review
+	if c.Label == adequate {
+		var rev Review
+		if err := r.ask(ctx, r.Suite.Adjudicator, r.reviewPrompt(reviewTask, c.Request, reviewSchema), &rev); err != nil {
+			return Confirmation{}, err
+		}
+		if !rev.Meets {
+			return Confirmation{Reasoning: "The review on the candidate's own merits found it short of the expectation.", Review: &rev}, nil
+		}
+		review = &rev
+	}
 	task := "Confirm the label. For an inadequate case: the candidate carries the defect the key describes, where it says, the defect is one the expectation names, and the candidate meets the expectation otherwise. For an adequate case: the candidate meets the expectation, as the key says."
 	var conf Confirmation
 	err := r.ask(ctx, r.Suite.Adjudicator, r.adjudicatorPrompt(c, task, c.Request, confirmSchema), &conf)
+	conf.Review = review
 	return conf, err
 }
+
+// reviewTask asks for a review of a candidate on its own merits, without its label or key.
+const reviewTask = "Review the candidate on its own merits, as a strict and careful reviewer, and say whether it meets the expectation. " +
+	"First list for yourself every concern within the mandate's lens that the examined text plainly supports, and check that the candidate addresses each. " +
+	"Then check every other part of the expectation, including that each claim of the candidate, in its statements, uncertainty and method, is supported by the inputs. " +
+	"Answer meets true only if you find nothing that a careful reviewer could fault, and name in the reasoning whatever you found."
 
 // Baseline is each case judged without attack, by the configuration and by the reference.
 type Baseline struct {

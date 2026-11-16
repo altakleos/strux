@@ -77,7 +77,7 @@ func check(inputs []Input, tag, text string) (Judgment, error) {
 		if !strings.ContainsFunc(q, wordRune) {
 			return Judgment{}, fmt.Errorf("citation %d quotes no letter or digit", k+1)
 		}
-		if !holds(squeeze(strings.Join(ls[c.FirstLine-1:c.LastLine], "\n")), q) {
+		if !quoted(squeeze(strings.Join(ls[c.FirstLine-1:c.LastLine], "\n")), q) {
 			return Judgment{}, fmt.Errorf("citation %d quotes text that lines %d to %d of input %d do not hold", k+1, c.FirstLine, c.LastLine, c.Input)
 		}
 		j.Evidence[k].Quote = q
@@ -194,15 +194,53 @@ func unmark(quote, tag string, governing bool) string {
 	return marker.ReplaceAllString(quote, " ")
 }
 
-// holds reports whether the text holds the quote as whole words: a quote that starts or ends with a
-// letter or digit does not match within a longer word.
-func holds(text, quote string) bool {
+// quoted reports whether the cited text holds the quote as whole words: as it stands, or as pieces
+// that an ellipsis joins and that the text holds in that order. Both are tried on the text as
+// written and with its \" and \\ escapes undone, so that a quote of a string a YAML or JSON file
+// escapes still matches. Neither lets a quote hold a word the lines do not.
+func quoted(text, quote string) bool {
+	for _, t := range []string{text, unescape(text)} {
+		if _, ok := find(t, quote, 0); ok {
+			return true
+		}
+		if pieces := ellipsis.Split(quote, -1); len(pieces) > 1 && inOrder(t, pieces) {
+			return true
+		}
+	}
+	return false
+}
+
+// ellipsis is what a quote may put between two pieces it leaves text out between.
+var ellipsis = regexp.MustCompile(`\s*(?:\[\s*(?:\.\.\.|…)\s*\]|\.\.\.|…)\s*`)
+
+// inOrder reports whether the text holds each piece that has a letter or digit, in order and as
+// whole words, and holds at least one.
+func inOrder(text string, pieces []string) bool {
+	from, found := 0, false
+	for _, p := range pieces {
+		if !strings.ContainsFunc(p, wordRune) {
+			continue
+		}
+		end, ok := find(text, p, from)
+		if !ok {
+			return false
+		}
+		from, found = end, true
+	}
+	return found
+}
+
+func unescape(s string) string { return strings.NewReplacer(`\\`, `\`, `\"`, `"`).Replace(s) }
+
+// find returns where the first occurrence of the quote at or after from ends, as whole words: a
+// quote that starts or ends with a letter or digit does not match within a longer word.
+func find(text, quote string, from int) (int, bool) {
 	first, _ := utf8.DecodeRuneInString(quote)
 	last, _ := utf8.DecodeLastRuneInString(quote)
-	for from := 0; ; {
+	for {
 		i := strings.Index(text[from:], quote)
 		if i < 0 {
-			return false
+			return 0, false
 		}
 		i += from
 		before, _ := utf8.DecodeLastRuneInString(text[:i])
@@ -210,7 +248,7 @@ func holds(text, quote string) bool {
 		splitsWordBefore := wordRune(first) && i > 0 && wordRune(before)
 		splitsWordAfter := wordRune(last) && i+len(quote) < len(text) && wordRune(after)
 		if !splitsWordBefore && !splitsWordAfter {
-			return true
+			return i + len(quote), true
 		}
 		_, size := utf8.DecodeRuneInString(text[i:])
 		from = i + size
