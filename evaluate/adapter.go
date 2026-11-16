@@ -73,7 +73,7 @@ func (a Adapter) Judge(ctx context.Context, c Config, p Prompt) (Response, error
 		return Response{}, fmt.Errorf("the adapter %s wrote no response in its form: %w", a.Command[0], err)
 	}
 	if resp.Error != "" {
-		return Response{}, fmt.Errorf("the adapter %s got no response: %s", a.Command[0], resp.Error)
+		return Response{}, fmt.Errorf("the adapter %s got no response: %s: %w", a.Command[0], resp.Error, ErrNoResponse)
 	}
 	if !slices.Contains([]Stop{StopDone, StopRefused, StopLength, StopRejected, StopOther}, resp.Stop) {
 		return Response{}, fmt.Errorf("the adapter %s gave the stop %q, which is not one strux knows", a.Command[0], resp.Stop)

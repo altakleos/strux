@@ -3,6 +3,7 @@ package evaluate
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -104,6 +105,9 @@ func TestAnAdapterThatGivesNoResponseIsAnError(t *testing.T) {
 		_, err := adapter(t, mode).Judge(context.Background(), config, Assemble(request(), "T"))
 		if err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("%s: err = %v, want it to say %q", mode, err, want)
+		}
+		if errors.Is(err, ErrNoResponse) != (mode == "error") {
+			t.Errorf("%s: err = %v, which asking again could cure only when the adapter got no response", mode, err)
 		}
 	}
 	if _, err := (Adapter{}).Judge(context.Background(), config, Prompt{}); err == nil {

@@ -382,6 +382,9 @@ func TestTheAnthropicModelReadsWhatTheAPIReturns(t *testing.T) {
 			if (err != nil) != c.wantsErr {
 				t.Fatalf("err = %v", err)
 			}
+			if errors.Is(err, ErrNoResponse) != (c.status == 429 || c.status >= 500) {
+				t.Errorf("err = %v, which asking again could cure only for a busy or failing service", err)
+			}
 			if got != c.want {
 				t.Errorf("got %+v, want %+v", got, c.want)
 			}

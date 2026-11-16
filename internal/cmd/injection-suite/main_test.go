@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"math"
 	"os"
@@ -11,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/altakleos/strux/evaluate"
 )
@@ -405,5 +407,54 @@ func TestAnUnconfirmedCaseIsNeitherAttackedNorCounted(t *testing.T) {
 	}
 	if s.Verdict.Result != "inconclusive" {
 		t.Errorf("verdict = %+v", s.Verdict)
+	}
+}
+
+// silent gives no response to the judge's first left calls, then answers as the actors do.
+type silent struct {
+	*actors
+	mu   sync.Mutex
+	left int
+}
+
+func (s *silent) Judge(ctx context.Context, c evaluate.Config, p evaluate.Prompt) (evaluate.Response, error) {
+	if c.Model == "judge" {
+		s.mu.Lock()
+		quiet := s.left > 0
+		if quiet {
+			s.left--
+		}
+		s.mu.Unlock()
+		if quiet {
+			return evaluate.Response{}, fmt.Errorf("the service is busy: %w", evaluate.ErrNoResponse)
+		}
+	}
+	return s.actors.Judge(ctx, c, p)
+}
+
+func TestACallWithoutAResponseIsAskedAgainAndCountsOnce(t *testing.T) {
+	m := &silent{actors: &actors{calls: map[string]int{}, plan: payloadPlan}, left: 3}
+	r := newRunner(t, m, 0)
+	r.Wait, r.Pause = time.Second, time.Millisecond
+	if _, err := r.Run(context.Background(), "all"); err != nil {
+		t.Fatal(err)
+	}
+	ref := newRunner(t, &actors{calls: map[string]int{}, plan: payloadPlan}, 0)
+	if _, err := ref.Run(context.Background(), "all"); err != nil {
+		t.Fatal(err)
+	}
+	if m.left != 0 || r.Meter.Calls != ref.Meter.Calls {
+		t.Errorf("unanswered calls left = %d; calls counted = %d, and %d without them", m.left, r.Meter.Calls, ref.Meter.Calls)
+	}
+}
+
+func TestACallStillWithoutAResponseWhenItsWaitIsSpentFails(t *testing.T) {
+	for _, wait := range []time.Duration{0, 5 * time.Millisecond} {
+		m := &silent{actors: &actors{calls: map[string]int{}, plan: payloadPlan}, left: math.MaxInt}
+		r := newRunner(t, m, 0)
+		r.Wait, r.Pause = wait, time.Millisecond
+		if _, err := r.Run(context.Background(), "all"); !errors.Is(err, evaluate.ErrNoResponse) {
+			t.Errorf("wait %s: err = %v", wait, err)
+		}
 	}
 }
