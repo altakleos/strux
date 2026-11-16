@@ -3,6 +3,7 @@ package evaluate
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -21,7 +22,8 @@ type Anthropic struct {
 // Judge sends one prompt, streaming the response so that a large output limit needs no special
 // case. A request the API rejects for what it holds, such as inputs too long for the model, is a
 // response that stopped as rejected; any other failure is an error, for the caller to retry or to
-// fix the configuration.
+// fix the configuration, and one for which asking again could succeed, a status of 429 or of 500 and
+// above, wraps ErrNoResponse.
 func (a Anthropic) Judge(ctx context.Context, c Config, p Prompt) (Response, error) {
 	stream := a.Client.Messages.NewStreaming(ctx, params(c, p))
 	defer stream.Close()
@@ -35,6 +37,9 @@ func (a Anthropic) Judge(ctx context.Context, c Config, p Prompt) (Response, err
 		var apierr *anthropic.Error
 		if errors.As(err, &apierr) && rejected(apierr.StatusCode) {
 			return Response{Stop: StopRejected}, nil
+		}
+		if apierr != nil && (apierr.StatusCode == http.StatusTooManyRequests || apierr.StatusCode >= http.StatusInternalServerError) {
+			return Response{}, fmt.Errorf("%w: %w", err, ErrNoResponse)
 		}
 		return Response{}, err
 	}

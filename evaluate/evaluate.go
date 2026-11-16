@@ -125,12 +125,18 @@ func digest(b []byte) string {
 	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
-// Model is the judging model. Judge returns an error only when asking again could succeed or the
-// configuration must be fixed first; a request the model's provider rejects for what it holds is a
-// response that stopped as rejected, and the checking step refuses it.
+// Model is the judging model. Judge returns an error only when asking again could succeed, an error
+// that wraps ErrNoResponse, or when the configuration must be fixed first; a request the model's
+// provider rejects for what it holds is a response that stopped as rejected, and the checking step
+// refuses it.
 type Model interface {
 	Judge(ctx context.Context, c Config, p Prompt) (Response, error)
 }
+
+// ErrNoResponse is wrapped by the error of a judgment for which no response came back and asking
+// again could succeed, as when the model's service is busy or a limit of the plan it draws on was
+// reached.
+var ErrNoResponse = errors.New("no response came back")
 
 // Response is what the judging model returned.
 type Response struct {

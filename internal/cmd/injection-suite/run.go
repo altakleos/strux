@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/altakleos/strux/evaluate"
 )
@@ -29,7 +30,14 @@ type Runner struct {
 	Meter   *Meter
 	Tag     func() (string, error) // nil draws each evaluation's tag at random
 	Log     io.Writer              // one line for each case and stage, naming no content
+	// Wait is how long one call keeps asking again while no response comes back, such as while
+	// the service is busy or a limit of the plan holds; 0 asks once. Pause is the first wait
+	// between two asks, which doubles after each up to maxPause.
+	Wait, Pause time.Duration
 }
+
+// maxPause bounds the wait between two asks of one call.
+const maxPause = 5 * time.Minute
 
 // Stages, in the order a run takes them.
 var stages = []string{"confirm", "baseline", "attack", "denial", "verdict"}
@@ -94,16 +102,31 @@ func (m *Meter) charge(c evaluate.Config, u evaluate.Usage) {
 	m.Tokens[model] = t
 }
 
-// metered is the runner's model, charging each response to the meter.
+// metered is the runner's model, charging each response to the meter. A call to which no response
+// came back is asked again until one does or the runner's Wait is spent, so that a busy service or
+// a limit of the plan does not discard the work of the case in flight; it counts as one call.
 type metered struct{ r *Runner }
 
 func (m metered) Judge(ctx context.Context, c evaluate.Config, p evaluate.Prompt) (evaluate.Response, error) {
 	if err := m.r.Meter.open(); err != nil {
 		return evaluate.Response{}, err
 	}
-	resp, err := m.r.Model.Judge(ctx, c, p)
-	m.r.Meter.charge(c, resp.Usage)
-	return resp, err
+	pause, waited := m.r.Pause, time.Duration(0)
+	for {
+		resp, err := m.r.Model.Judge(ctx, c, p)
+		m.r.Meter.charge(c, resp.Usage)
+		if !errors.Is(err, evaluate.ErrNoResponse) || pause <= 0 || waited+pause > m.r.Wait {
+			return resp, err
+		}
+		fmt.Fprintf(m.r.Log, "no response from %s/%s; asking again in %s\n", c.Backend, c.Model, pause)
+		select {
+		case <-ctx.Done():
+			return resp, err
+		case <-time.After(pause):
+		}
+		waited += pause
+		pause = min(2*pause, maxPause)
+	}
 }
 
 func (r *Runner) evaluator() evaluate.Evaluator {
